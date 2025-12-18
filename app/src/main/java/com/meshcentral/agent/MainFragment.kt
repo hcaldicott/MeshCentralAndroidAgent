@@ -6,6 +6,7 @@ import android.app.AlertDialog
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -24,6 +25,7 @@ import com.karumi.dexter.listener.multi.MultiplePermissionsListener
  */
 class MainFragment : Fragment(), MultiplePermissionsListener {
     var alert : AlertDialog? = null
+    private val logTag = "MainFragment"
 
     override fun onCreateView(
             inflater: LayoutInflater, container: ViewGroup?,
@@ -91,22 +93,22 @@ class MainFragment : Fragment(), MultiplePermissionsListener {
     }
 
     fun moveToScanner() {
-        println("moveToScanner $visibleScreen")
+        Log.d(logTag, "moveToScanner $visibleScreen")
         if (visibleScreen == 1) { findNavController().navigate(R.id.action_FirstFragment_to_SecondFragment) }
     }
 
     fun moveToWebPage(pageUrl: String) {
-        println("moveToWebPage $visibleScreen")
+        Log.d(logTag, "moveToWebPage $visibleScreen")
         if (visibleScreen == 1) { findNavController().navigate(R.id.action_FirstFragment_to_webViewFragment) }
     }
 
     fun moveToAuthPage() {
-        println("moveToAuthPage $visibleScreen")
+        Log.d(logTag, "moveToAuthPage $visibleScreen")
         if (visibleScreen == 1) { findNavController().navigate(R.id.action_FirstFragment_to_authFragment) }
     }
 
     fun moveToSettingsPage() {
-        println("moveToSettingsPage $visibleScreen")
+        Log.d(logTag, "moveToSettingsPage $visibleScreen")
         if (visibleScreen == 1) { findNavController().navigate(R.id.action_FirstFragment_to_settingsFragment) }
     }
 
@@ -333,12 +335,12 @@ class MainFragment : Fragment(), MultiplePermissionsListener {
     }
 
     override fun onPermissionsChecked(report: MultiplePermissionsReport?) {
-        println("onPermissionsChecked")
+        Log.d(logTag, "onPermissionsChecked")
         (activity as MainActivity).toggleAgentConnection(false)
     }
 
     override fun onPermissionRationaleShouldBeShown(permissions: MutableList<PermissionRequest>?, token: PermissionToken?) {
-        println("onPermissionRationaleShouldBeShown")
+        Log.d(logTag, "onPermissionRationaleShouldBeShown")
         token?.continuePermissionRequest()
     }
 

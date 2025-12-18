@@ -2,6 +2,7 @@ package com.meshcentral.agent
 
 import android.app.AlertDialog
 import android.os.Bundle
+import android.util.Log
 import android.view.Gravity
 import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
@@ -28,6 +29,7 @@ class ScannerFragment : Fragment(), PermissionListener {
     private var lastToast : Toast? = null
     private lateinit var codeScanner: CodeScanner
     var alert : AlertDialog? = null
+    private val logTag = "ScannerFragment"
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -79,7 +81,7 @@ class ScannerFragment : Fragment(), PermissionListener {
     }
 
     override fun onResume() {
-        println("onResume")
+        Log.d(logTag, "onResume")
         super.onResume()
         Dexter.withContext(context)
             .withPermission(android.Manifest.permission.CAMERA)
@@ -120,17 +122,17 @@ class ScannerFragment : Fragment(), PermissionListener {
     }
 
     override fun onPermissionGranted(p0: PermissionGrantedResponse?) {
-        println("onPermissionGranted")
+        Log.d(logTag, "onPermissionGranted")
         codeScanner.startPreview()
     }
 
     override fun onPermissionRationaleShouldBeShown(p0: PermissionRequest?, p1: PermissionToken?) {
-        println("onPermissionRationaleShouldBeShown")
+        Log.d(logTag, "onPermissionRationaleShouldBeShown")
         p1?.continuePermissionRequest()
     }
 
     override fun onPermissionDenied(p0: PermissionDeniedResponse?) {
-        println("onPermissionDenied")
+        Log.d(logTag, "onPermissionDenied")
         findNavController().navigate(R.id.action_SecondFragment_to_FirstFragment)
     }
 

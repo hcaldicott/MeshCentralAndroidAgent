@@ -111,7 +111,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 val hash = MessageDigest.getInstance("SHA-384").digest(encoded).toHex()
                 if ((serverTlsCertHash != null) && (hash == serverTlsCertHash?.toHex())) return
                 if (hash == parent.serverTlsCertHash?.toHex()) return
-                println("Got Bad Tunnel TlsHash: $hash")
+                Log.e(logTag, "Got Bad Tunnel TlsHash: $hash")
                 throw CertificateException()
             }
 
@@ -199,11 +199,11 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
             } else {
                 val xusage = text.toInt()
                 if (((xusage < 1) || (xusage > 5)) && (xusage != 10)) {
-                    println("Invalid usage $text"); stopSocket(); return
+                    Log.d(logTag, "Invalid usage $text"); stopSocket(); return
                 }
                 val serverExpectedUsage = serverData.optInt("usage")
                 if ((serverExpectedUsage != 0) && (serverExpectedUsage != xusage)) {
-                    println("Unexpected usage $text != $serverExpectedUsage");
+                    Log.d(logTag, "Unexpected usage $text != $serverExpectedUsage");
                     stopSocket(); return
                 }
                 usage = xusage; // 2 = Desktop, 5 = Files, 10 = File transfer
@@ -243,12 +243,12 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 } else {
                     // This is a file transfer
                     if (tunnelOptions == null) {
-                        println("No file transfer options");
+                        Log.e(logTag, "No file transfer options");
                         stopSocket();
                     } else {
                         val filename = tunnelOptions?.optString("file")
                         if (filename == null) {
-                            println("No file transfer name");
+                            Log.e(logTag, "No file transfer name");
                             stopSocket();
                         } else {
                             //println("File transfer usage")
@@ -307,7 +307,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
             }
         }
         catch (e: Exception) {
-            println("Tunnel-Exception: ${e.toString()}")
+            Log.d(logTag, "Tunnel-Exception: ${e.toString()}")
         }
     }
 
@@ -324,11 +324,11 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 g_desktop_compressionLevel = msg[5].toInt() // Value from 1 to 100
                 if (cmdsize >= 8) { g_desktop_scalingLevel = (msg[6].toInt() shl 8).absoluteValue + msg[7].toInt().absoluteValue } // 1024 = 100%
                 if (cmdsize >= 10) { g_desktop_frameRateLimiter = (msg[8].toInt() shl 8).absoluteValue + msg[9].toInt().absoluteValue }
-                println("Desktop Settings, type=$g_desktop_imageType, comp=$g_desktop_compressionLevel, scale=$g_desktop_scalingLevel, rate=$g_desktop_frameRateLimiter")
+                Log.d(logTag, "Desktop Settings, type=$g_desktop_imageType, comp=$g_desktop_compressionLevel, scale=$g_desktop_scalingLevel, rate=$g_desktop_frameRateLimiter")
                 updateDesktopDisplaySize()
             }
             6 -> { // Refresh
-                println("Desktop Refresh")
+                Log.d(logTag, "Desktop Refresh")
                 g_ScreenCaptureService?.requestDesktopRefresh()
             }
             8 -> { // Pause
@@ -337,7 +337,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
             85 -> handleUnicodeKeyboardInput(msg)
             87 -> handleRemoteInputLock(msg)
             else -> {
-                println("Unknown desktop binary command: $cmd, Size: ${msg.size}, Hex: ${msg.toByteArray().toHex()}")
+                Log.d(logTag, "Unknown desktop binary command: $cmd, Size: ${msg.size}, Hex: ${msg.toByteArray().toHex()}")
             }
         }
     }
@@ -697,7 +697,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                             name.lowercase().endsWith(".mp3") -> Triple("audio/mpeg3", Environment.DIRECTORY_MUSIC, MediaStore.Audio.Media.EXTERNAL_CONTENT_URI)
                             name.lowercase().endsWith(".ogg") -> Triple("audio/ogg", Environment.DIRECTORY_MUSIC, MediaStore.Audio.Media.EXTERNAL_CONTENT_URI)
                             else -> {
-                                println("Unsupported file type: $name")
+                                Log.e(logTag, "Unsupported file type: $name")
                                 Triple(null, null, null)
                             }
                         }
@@ -758,7 +758,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
             }
             else -> {
                 // Unknown command, ignore it.
-                println("Unhandled action: $action, $jsonStr")
+                Log.d(logTag, "Unhandled action: $action, $jsonStr")
             }
         }
     }
@@ -1009,12 +1009,12 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
     }
 
     override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-        //println("Tunnel-onClosing")
+        Log.d(logTag, "Tunnel-conClosure ${code.toString()},  ${reason.toString()}")
         stopSocket()
     }
 
     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-        println("Tunnel-onFailure ${t.toString()},  ${response.toString()}")
+        Log.e(logTag, "Tunnel-onFailure ${t.toString()},  ${response.toString()}")
         stopSocket()
     }
 

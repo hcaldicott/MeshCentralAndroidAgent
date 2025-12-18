@@ -24,6 +24,7 @@ import android.os.CountDownTimer
 import android.provider.Settings
 import android.text.InputType
 import android.util.Base64
+import android.util.Log
 import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
@@ -103,11 +104,12 @@ class MainActivity : AppCompatActivity() {
     lateinit var notificationChannel: NotificationChannel
     lateinit var notificationManager: NotificationManager
     lateinit var builder: Notification.Builder
+    private val logTag = "MainActivity"
 
     // Activity Result Launcher for screen capture (replaces deprecated startActivityForResult)
     private val screenCaptureLauncher: ActivityResultLauncher<Intent> =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            println("screenCaptureLauncher, resultCode: ${result.resultCode}, data: ${result.data}")
+            Log.d(logTag, "screenCaptureLauncher, resultCode: ${result.resultCode}, data: ${result.data}")
             if (result.resultCode == RESULT_OK) {
                 startService(ScreenCaptureService.getStartIntent(this, result.resultCode, result.data))
                 if (meshAgent?.tunnels?.getOrNull(0) != null) {
@@ -135,14 +137,14 @@ class MainActivity : AppCompatActivity() {
     // Activity Result Launcher for intent sender (replaces deprecated startIntentSenderForResult)
     private val intentSenderLauncher: ActivityResultLauncher<IntentSenderRequest> =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-            println("intentSenderLauncher, resultCode: ${result.resultCode}")
+            Log.d(logTag, "intentSenderLauncher, resultCode: ${result.resultCode}")
             val pad = pendingIntentSenderData
             if (pad != null) {
                 if (result.resultCode == RESULT_OK) {
-                    println("Approved: ${pad.url}, ${pad.where}, ${pad.args}")
+                    Log.d(logTag, "Approved: ${pad.url}, ${pad.where}, ${pad.args}")
                     pad.tunnel.deleteFileEx(pad)
                 } else {
-                    println("Denied: ${pad.url}, ${pad.where}, ${pad.args}")
+                    Log.d(logTag, "Denied: ${pad.url}, ${pad.where}, ${pad.args}")
                     pad.tunnel.deleteFileEx(pad)
                 }
                 pendingIntentSenderData = null
@@ -661,7 +663,7 @@ class MainActivity : AppCompatActivity() {
         // Set up the buttons
         builder.setPositiveButton(android.R.string.ok) { _, _ ->
             val link = input.text.toString()
-            println("LINK: $link")
+            Log.i(logTag, "LINK: $link")
             if (isMshStringValid(link)) {
                 setMeshServerLink(link)
             } else {
@@ -734,14 +736,14 @@ class MainActivity : AppCompatActivity() {
             if (g_retryTimer == null) {
                 g_retryTimer = object : CountDownTimer(120000000, 10000) {
                     override fun onTick(millisUntilFinished: Long) {
-                        println("onTick!!!")
+                        Log.d(logTag, "onTick!!!")
                         if ((meshAgent == null) && (!g_userDisconnect)) {
                             toggleAgentConnection(false)
                         }
                     }
 
                     override fun onFinish() {
-                        println("onFinish!!!")
+                        Log.d(logTag, "onFinish!!!")
                         stopRetryTimer()
                         startRetryTimer()
                     }

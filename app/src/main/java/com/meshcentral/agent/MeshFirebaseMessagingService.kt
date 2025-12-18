@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.util.Log
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -20,6 +21,7 @@ import kotlin.concurrent.thread
 
 class MeshFirebaseMessagingService : FirebaseMessagingService() {
     private val msgId = AtomicInteger()
+    private val logTag = "MeshFirebaseMessaging"
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
@@ -31,9 +33,9 @@ class MeshFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
-        println("onMessageReceived-from: ${remoteMessage.from}")
-        println("onMessageReceived-data: ${remoteMessage.data}")
-        println("serverLink: $serverLink")
+        Log.d(logTag, "onMessageReceived-from: ${remoteMessage.from}")
+        Log.d(logTag, "onMessageReceived-data: ${remoteMessage.data}")
+        Log.d(logTag, "serverLink: $serverLink")
 
         super.onMessageReceived(remoteMessage)
 
@@ -73,7 +75,7 @@ class MeshFirebaseMessagingService : FirebaseMessagingService() {
             }
         } else if (remoteMessage.notification != null) {
             if (g_mainActivity != null) {
-                println("Showing notification with URL: $url");
+                Log.d(logTag, "Showing notification with URL: $url");
                 g_mainActivity?.showNotification(remoteMessage.notification?.title, remoteMessage.notification?.body, url)
             }
         } else {
@@ -85,7 +87,7 @@ class MeshFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     fun sendMessage(to:String, cmd:String, session:String, relayId: String?) {
-        println("sendMessage: $to, $cmd, $session")
+        Log.d(logTag, "sendMessage: $to, $cmd, $session")
         val fm = FirebaseMessaging.getInstance()
 
         var m = RemoteMessage.Builder("${to}@gcm.googleapis.com")

@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.*
 import android.provider.Settings
 import android.util.Base64
+import android.util.Log
 import okhttp3.*
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
@@ -39,7 +40,7 @@ class MeshUserInfo(userid: String, realname: String?, image: Bitmap?) {
     val realname: String? = realname
     val image: Bitmap? = image
     init {
-        println("MeshUserInfo: $userid, $realname")
+        Log.d("MeshUserInfo", "MeshUserInfo: $userid, $realname")
     }
 }
 
@@ -62,6 +63,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
     private var lastNetInfo : String? = null
     var tunnels : ArrayList<MeshTunnel> = ArrayList()
     var userinfo : HashMap<String, MeshUserInfo> = HashMap() // UserID -> MeshUserInfo
+    private val logTag = "MeshAgent"
 
     init {
         //println("MeshAgent Constructor: ${host}, ${certHash}, $devGroupId")
@@ -186,7 +188,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     if (bytes.size != 98) return;
                     var serverCertHash = bytes.substring(2, 50).toByteArray()
                     if (!serverCertHash.contentEquals(serverTlsCertHash!!)) {
-                        println("Server Hash Mismatch, given=${serverCertHash.toHex()}, computed=${serverTlsCertHash?.toHex()}")
+                        Log.e(logTag, "Server Hash Mismatch, given=${serverCertHash.toHex()}, computed=${serverTlsCertHash?.toHex()}")
                         stopSocket()
                         return
                     }
@@ -225,7 +227,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     serveridb64 = serveridb64.replace('/', '$').replace('+', '@')
                     // If invalid server certificate, disconnect
                     if (serveridb64.compareTo(serverCertHash) != 0) {
-                        println("Invalid Server Certificate Hash"); stopSocket(); return
+                        Log.e(logTag, "Invalid Server Certificate Hash"); stopSocket(); return
                     }
 
                     // Verify server signature
@@ -234,7 +236,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     sig.initVerify(xagentCertificate)
                     sig.update(signBlock)
                     if (!sig.verify(bytes.substring(4 + xcertLen).toByteArray())) {
-                        println("Invalid Server Signature"); stopSocket(); return
+                        Log.e(logTag, "Invalid Server Signature"); stopSocket(); return
                     }
 
                     // Everything is ok, server is valid.
@@ -287,7 +289,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
             }
         }
         catch (e: Exception) {
-            println("Exception: ${e.toString()}")
+            Log.d(logTag, "Exception: ${e.toString()}")
         }
     }
 
@@ -297,7 +299,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
     }
 
     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-        println("onFailure ${t.toString()},  ${response.toString()}")
+        Log.d(logTag, "onFailure ${t.toString()},  ${response.toString()}")
         stopSocket()
     }
 
@@ -446,7 +448,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                         }
                         else -> {
                             // Unknown message type, ignore it.
-                            println("Unhandled msg type: $msgtype")
+                        Log.d(logTag, "Unhandled msg type: $msgtype")
                         }
                     }
                 }
@@ -514,12 +516,12 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                 }
                 else -> {
                     // Unknown command, ignore it.
-                    println("Unhandled action: $action")
+                    Log.d(logTag, "Unhandled action: $action")
                 }
             }
         }
         catch (e: Exception) {
-            println("processAgentData Exception: ${e.toString()}")
+            Log.d(logTag, "processAgentData Exception: ${e.toString()}")
         }
     }
 

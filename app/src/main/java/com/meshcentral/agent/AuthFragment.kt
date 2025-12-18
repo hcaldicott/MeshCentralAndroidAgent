@@ -3,6 +3,7 @@ package com.meshcentral.agent
 import android.os.Bundle
 import android.os.CountDownTimer
 import android.util.Base64
+import android.util.Log
 import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
@@ -15,9 +16,10 @@ import java.lang.Exception
 
 class AuthFragment : Fragment() {
     private lateinit var countDownTimer : CountDownTimer
+    private val logTag = "AuthFragment"
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        println("onCreate-auth")
+        Log.d(logTag, "onCreate-auth")
         super.onCreate(savedInstanceState)
     }
 
@@ -25,13 +27,13 @@ class AuthFragment : Fragment() {
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        println("onCreateView-auth")
+        Log.d(logTag, "onCreateView-auth")
         // Inflate the layout for this fragment
         return inflater.inflate(R.layout.fragment_auth, container, false)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        println("onViewCreated-auth")
+        Log.d(logTag, "onViewCreated-auth")
         super.onViewCreated(view, savedInstanceState)
         authFragment = this
         visibleScreen = 4
