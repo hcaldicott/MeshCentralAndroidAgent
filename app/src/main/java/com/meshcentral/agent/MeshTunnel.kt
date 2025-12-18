@@ -103,8 +103,8 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                val encoded = chain?.get(0)?.encoded ?: throw CertificateException("No certificate")
-                val hash = MessageDigest.getInstance("SHA-384").digest(encoded).toHex()
+                val hash =
+                        MessageDigest.getInstance("SHA-384").digest(chain?.get(0)?.encoded).toHex()
                 if ((serverTlsCertHash != null) && (hash == serverTlsCertHash?.toHex())) return
                 if (hash == parent.serverTlsCertHash?.toHex()) return
                 println("Got Bad Tunnel TlsHash: $hash")
@@ -264,8 +264,8 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 // If this is file upload data, process it here
                 if (bytes[0].toInt() == 0) {
                     // If data starts with zero, skip the first byte. This is used to escape binary file data from JSON.
-                    fileUploadSize += (bytes.size - 1);
-                    val buf = bytes.toByteArray()
+                    fileUploadSize += (msg.size - 1);
+                    val buf = msg.toByteArray()
                     try {
                         fileUpload?.write(buf, 1, buf.size - 1)
                     } catch (_ : Exception) {
@@ -277,7 +277,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                     // If data does not start with zero, save as-is.
                     fileUploadSize += bytes.size;
                     try {
-                        fileUpload?.write(bytes.toByteArray())
+                        fileUpload?.write(msg.toByteArray())
                     } catch (_ : Exception) {
                         // Report a problem
                         uploadError()
@@ -291,12 +291,12 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 json.put("reqid", fileUploadReqId)
                 if (_webSocket != null) { _webSocket?.send(json.toString().toByteArray().toByteString()) }
             } else {
-                if (bytes.size < 2) return
-                val cmd : Int = (bytes[0].toInt() shl 8) + bytes[1].toInt()
-                val cmdsize : Int = (bytes[2].toInt() shl 8) + bytes[3].toInt()
-                if (cmdsize != bytes.size) return
-                //println("Cmd $cmd, Size: ${bytes.size}, Hex: ${bytes.toByteArray().toHex()}")
-                if (usage == 2) processBinaryDesktopCmd(cmd, cmdsize, bytes) // Remote desktop
+                if (msg.size < 2) return
+                val cmd : Int = (msg[0].toInt() shl 8) + msg[1].toInt()
+                val cmdsize : Int = (msg[2].toInt() shl 8) + msg[3].toInt()
+                if (cmdsize != msg.size) return
+                //println("Cmd $cmd, Size: ${msg.size}, Hex: ${msg.toByteArray().toHex()}")
+                if (usage == 2) processBinaryDesktopCmd(cmd, cmdsize, msg) // Remote desktop
             }
         }
         catch (e: Exception) {
@@ -650,9 +650,10 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                                 securityException as? RecoverableSecurityException
                                     ?: throw securityException
 
-                            // Create pending activity data
+                            // Save the activity
                             val activityCode = Random.nextInt() and 0xFFFF
                             val pad = PendingActivityData(this, activityCode, fileUriArray[0], "${MediaStore.Images.Media._ID} = ?", fileidArray[0], req)
+                            pendingActivities.add(pad)
 
                             // Launch the activity using the modern Activity Result API
                             val intentSender = recoverableSecurityException.userAction.actionIntent.intentSender
