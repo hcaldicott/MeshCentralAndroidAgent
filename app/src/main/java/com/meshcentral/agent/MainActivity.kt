@@ -15,6 +15,7 @@ import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
@@ -682,10 +683,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Start screen sharing
+    @Suppress("NewApi")
     fun startProjection() {
         if ((g_ScreenCaptureService != null) || (meshAgent == null) || (meshAgent!!.state != 3)) return
         val mProjectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        screenCaptureLauncher.launch(mProjectionManager.createScreenCaptureIntent())
+        // On API 34+, use createConfigForDefaultDisplay to force entire screen capture only
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            mProjectionManager.createScreenCaptureIntent(
+                MediaProjectionConfig.createConfigForDefaultDisplay()
+            )
+        } else {
+            mProjectionManager.createScreenCaptureIntent()
+        }
+        screenCaptureLauncher.launch(intent)
     }
 
     // Stop screen sharing

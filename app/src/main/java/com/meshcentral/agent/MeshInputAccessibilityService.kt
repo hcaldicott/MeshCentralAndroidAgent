@@ -3,15 +3,19 @@ package com.meshcentral.agent
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.app.UiAutomation
+import android.content.Context
+import android.graphics.Path
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.graphics.Path
 import java.lang.reflect.Method
 
 class MeshInputAccessibilityService : AccessibilityService() {
@@ -57,9 +61,37 @@ class MeshInputAccessibilityService : AccessibilityService() {
     @Volatile
     private var remoteInputLocked = false
 
+    private var cursorView: InputPointerView? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var lastCursorX = 0
+    private var lastCursorY = 0
+    private var lastCursorUpdateTime = 0L
+    private val CURSOR_UPDATE_INTERVAL = 16L // ~60fps max update rate
+    private val cursorIdleRunnable = Runnable { snapCursorToLastPosition() }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        initCursorOverlay()
+    }
+
+    private fun initCursorOverlay() {
+        mainHandler.post {
+            try {
+                val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                cursorView = InputPointerView(this).apply {
+                    addToWindow(wm)
+                    hide() // Start hidden until first mouse event
+                }
+                if (BuildConfig.DEBUG) {
+                    Log.d(logTag, "Cursor overlay initialized")
+                }
+            } catch (e: Exception) {
+                if (BuildConfig.DEBUG) {
+                    Log.e(logTag, "Failed to initialize cursor overlay: ${e.message}")
+                }
+            }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -72,7 +104,56 @@ class MeshInputAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         instance = null
+        mainHandler.post {
+            cursorView?.removeFromWindow()
+            cursorView = null
+        }
         super.onDestroy()
+    }
+
+    private fun updateCursorPosition(x: Int, y: Int, forceUpdate: Boolean = false) {
+        // Store the last position for snapping
+        lastCursorX = x
+        lastCursorY = y
+
+        // Cancel any pending snap and schedule a new one
+        mainHandler.removeCallbacks(cursorIdleRunnable)
+        mainHandler.postDelayed(cursorIdleRunnable, 100) // Snap after 100ms of no movement
+
+        // Throttle updates during movement to prevent visual lag
+        val now = SystemClock.uptimeMillis()
+        if (!forceUpdate && (now - lastCursorUpdateTime) < CURSOR_UPDATE_INTERVAL) {
+            return
+        }
+        lastCursorUpdateTime = now
+
+        mainHandler.post {
+            cursorView?.let {
+                if (!it.isVisible()) {
+                    it.show()
+                }
+                it.positionView(x, y)
+            }
+        }
+    }
+
+    private fun snapCursorToLastPosition() {
+        // Called when mouse movement stops - force update to final position
+        mainHandler.post {
+            cursorView?.positionView(lastCursorX, lastCursorY)
+        }
+    }
+
+    fun hideCursor() {
+        mainHandler.post {
+            cursorView?.hide()
+        }
+    }
+
+    fun showCursor() {
+        mainHandler.post {
+            cursorView?.show()
+        }
     }
 
     fun setRemoteInputLocked(locked: Boolean) {
@@ -147,6 +228,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
     }
 
     fun injectMouseMove(x: Int, y: Int) {
+        updateCursorPosition(x, y)
         if (remoteInputLocked) {
             if (BuildConfig.DEBUG) {
                 Log.d(logTag, "injectMouseMove suppressed (remote input locked) x=$x y=$y")
@@ -168,6 +250,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
     }
 
     fun injectMouseDown(x: Int, y: Int) {
+        updateCursorPosition(x, y, forceUpdate = true)
         if (remoteInputLocked) {
             if (BuildConfig.DEBUG) {
                 Log.d(logTag, "injectMouseDown suppressed (remote input locked) x=$x y=$y")
@@ -191,6 +274,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
     }
 
     fun injectMouseUp(x: Int, y: Int) {
+        updateCursorPosition(x, y, forceUpdate = true)
         if (remoteInputLocked) {
             if (BuildConfig.DEBUG) {
                 Log.d(logTag, "injectMouseUp suppressed (remote input locked) x=$x y=$y")
@@ -230,6 +314,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
     }
 
     fun injectMouseScroll(x: Int, y: Int, scrollDelta: Int) {
+        updateCursorPosition(x, y, forceUpdate = true)
         if (remoteInputLocked) {
             if (BuildConfig.DEBUG) {
                 Log.d(logTag, "injectMouseScroll suppressed (remote input locked) x=$x y=$y delta=$scrollDelta")
