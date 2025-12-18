@@ -13,7 +13,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import android.view.Display
 import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
@@ -556,7 +555,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
             KeyEvent.KEYCODE_DPAD_RIGHT -> moveCursor("ArrowRight")
             KeyEvent.KEYCODE_DPAD_UP -> moveCursor("ArrowUp")
             KeyEvent.KEYCODE_DPAD_DOWN -> moveCursor("ArrowDown")
-            KeyEvent.KEYCODE_HOME -> moveCursor("Home")
+            KeyEvent.KEYCODE_MOVE_HOME -> moveCursor("Home")
             KeyEvent.KEYCODE_MOVE_END -> moveCursor("End")
             KeyEvent.KEYCODE_ENTER -> handleEnterKey()
             KeyEvent.KEYCODE_TAB -> moveFocusForward()
@@ -576,7 +575,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
             val existingText = getExistingText(node)?.toString() ?: ""
             val selectionStart = node.textSelectionStart.takeIf { it >= 0 } ?: existingText.length
             val selectionEnd = node.textSelectionEnd.takeIf { it >= 0 } ?: selectionStart
-            val typeInMiddle = selectionStart > -1 && selectionStart < existingText.length
+            val typeInMiddle = selectionStart < existingText.length
             val newText = if (typeInMiddle) {
                 existingText.substring(0, selectionStart) + text + existingText.substring(selectionEnd)
             } else {
@@ -597,7 +596,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
             val selectionStart = node.textSelectionStart.takeIf { it >= 0 } ?: existingText.length
             val selectionEnd = node.textSelectionEnd.takeIf { it >= 0 } ?: selectionStart
             if (existingText.isEmpty()) return@withFocusedEditableNode false
-            val typeInMiddle = selectionStart > -1 && selectionStart < existingText.length
+            val typeInMiddle = selectionStart < existingText.length
             val (newText, cursorPos) = if (typeInMiddle) {
                 if (selectionEnd > selectionStart) {
                     val updated = existingText.removeRange(selectionStart, selectionEnd)
@@ -616,7 +615,6 @@ class MeshInputAccessibilityService : AccessibilityService() {
                 val updated = existingText.removeRange(selectionStart, selectionStart + 1)
                 updated to selectionStart
             } else {
-                if (existingText.isEmpty()) return@withFocusedEditableNode false
                 val updated = existingText.removeRange(existingText.length - 1, existingText.length)
                 updated to existingText.length - 1
             }
@@ -661,13 +659,12 @@ class MeshInputAccessibilityService : AccessibilityService() {
     private fun handleEnterKey(): Boolean {
         return withFocusedEditableNode { node ->
             val actions = node.actionList
-            val args = Bundle()
             when {
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
                         actions.contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER) ->
-                    node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id, args)
+                    node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
                 actions.contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK) ->
-                    node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK.id, args)
+                    node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK.id)
                 else -> false
             }
         }
@@ -700,7 +697,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
 
     private inline fun withFocusedEditableNode(block: (AccessibilityNodeInfo) -> Boolean): Boolean {
         val root = rootInActiveWindow ?: return false
-        val focusNode = findFocusedField(root)
+        val focusNode = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
         root.recycle()
         focusNode ?: return false
         return try {
@@ -731,22 +728,6 @@ class MeshInputAccessibilityService : AccessibilityService() {
 
     private fun savePasswordText(node: AccessibilityNodeInfo, text: String) {
         passwordTexts[node.windowId] = PasswordText(text)
-    }
-
-    private fun findFocusedField(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-        if (node == null) return null
-        if (node.isEditable && node.isFocused) {
-            return AccessibilityNodeInfo.obtain(node)
-        }
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            val focused = findFocusedField(child)
-            child?.recycle()
-            if (focused != null) {
-                return focused
-            }
-        }
-        return null
     }
 
     private fun findFocusableNodeRecursive(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
