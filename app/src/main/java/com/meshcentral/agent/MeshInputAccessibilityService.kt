@@ -18,10 +18,10 @@ import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.MotionEvent
-import android.view.View
-import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.inputmethod.InputConnection
+import android.view.WindowManager
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 
@@ -58,6 +58,8 @@ class MeshInputAccessibilityService : AccessibilityService() {
     }
 
     private val gesturesSupported: Boolean
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
+    private val gestureContinuationSupported: Boolean
         get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
 
     private val pointerProperties = MotionEvent.PointerProperties().apply {
@@ -72,6 +74,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
     private var pointerDown: Boolean = false
     @Volatile
     private var remoteInputLocked = false
+    private val passwordTexts = ConcurrentHashMap<Int, PasswordText>()
 
     private var cursorView: InputPointerView? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -80,8 +83,6 @@ class MeshInputAccessibilityService : AccessibilityService() {
     private var lastCursorUpdateTime = 0L
     private val CURSOR_UPDATE_INTERVAL = 16L // ~60fps max update rate
     private val cursorIdleRunnable = Runnable { snapCursorToLastPosition() }
-    private val keyboardFocusNodes = ConcurrentHashMap<Int, AccessibilityNodeInfo>()
-
     // Screen dimensions for coordinate scaling
     private var remoteScreenWidth = 0
     private var remoteScreenHeight = 0
@@ -175,10 +176,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val node = event?.source ?: return
-        val displayId = node.window?.displayId ?: Display.DEFAULT_DISPLAY
-        keyboardFocusNodes[displayId]?.recycle()
-        keyboardFocusNodes[displayId] = AccessibilityNodeInfo.obtain(node)
+        // We don't need to track accessibility events when focusing nodes directly from the active window tree.
     }
 
     override fun onInterrupt() {
@@ -187,8 +185,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         instance = null
-        keyboardFocusNodes.values.forEach { it.recycle() }
-        keyboardFocusNodes.clear()
+        passwordTexts.clear()
         mainHandler.post {
             cursorView?.removeFromWindow()
             cursorView = null
@@ -250,23 +247,21 @@ class MeshInputAccessibilityService : AccessibilityService() {
         if (Build.VERSION.SDK_INT < 34) {
             return false
         }
-        return try {
-            val inputMethod = getInputMethod()
-            val connection = inputMethod?.currentInputConnection
-            if (connection == null) {
-                if (BuildConfig.DEBUG) {
-                    Log.d(logTag, "sendKeyViaInputConnection failed (no connection)")
-                }
-                return false
+        val connection = getInputMethod()?.currentInputConnection as? InputConnection ?: run {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "sendKeyViaInputConnection failed (no connection)")
             }
+            return false
+        }
+        val success: Boolean = try {
             connection.sendKeyEvent(keyEvent)
-            true
         } catch (ex: Exception) {
             if (BuildConfig.DEBUG) {
                 Log.d(logTag, "sendKeyViaInputConnection exception=${ex.message}")
             }
             false
         }
+        return success
     }
 
     /**
@@ -303,7 +298,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
             Log.d(logTag, "injectKey InputConnection result=$connectionSuccess keyCode=${KeyEvent.keyCodeToString(keyCode)}($keyCode) action=$action")
         }
         if (connectionSuccess) return
-        if (tryAccessibilityFallback(keyCode, action)) return
+        if (handleAccessibilityKeyEvent(keyEvent)) return
         val automation = getUiAutomation()
         if (automation == null) {
             if (BuildConfig.DEBUG) {
@@ -438,6 +433,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
 
     private fun continueStroke(x: Int, y: Int) {
         gesturePath.lineTo(x.toFloat(), y.toFloat())
+        if (!gestureContinuationSupported) {
+            return
+        }
         var duration = SystemClock.elapsedRealtime() - lastGestureStartTime
         if (duration <= 0) duration = 1
         gestureStroke = if (gestureStroke == null) {
@@ -455,13 +453,18 @@ class MeshInputAccessibilityService : AccessibilityService() {
         gesturePath.lineTo(x.toFloat(), y.toFloat())
         var duration = SystemClock.elapsedRealtime() - lastGestureStartTime
         if (duration <= 0) duration = 1
-        gestureStroke = if (gestureStroke == null) {
-            GestureDescription.StrokeDescription(gesturePath, 0, duration, false)
+        if (gestureContinuationSupported) {
+            gestureStroke = if (gestureStroke == null) {
+                GestureDescription.StrokeDescription(gesturePath, 0, duration, false)
+            } else {
+                gestureStroke?.continueStroke(gesturePath, 0, duration, false)
+            }
+            gestureStroke?.let { dispatchGestureStroke(it) }
+            gestureStroke = null
         } else {
-            gestureStroke?.continueStroke(gesturePath, 0, duration, false)
+            val stroke = GestureDescription.StrokeDescription(gesturePath, 0, duration)
+            dispatchGestureStroke(stroke)
         }
-        gestureStroke?.let { dispatchGestureStroke(it) }
-        gestureStroke = null
         gesturePath.reset()
     }
 
@@ -544,136 +547,204 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
-    /**
-     * Attempt to synthesize DPAD/Tab navigation by acting on focus nodes for older APIs.
-     */
-    private fun tryAccessibilityFallback(keyCode: Int, action: Int): Boolean {
-        if (action != KeyEvent.ACTION_DOWN) return false
-        return when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_LEFT,
-            KeyEvent.KEYCODE_DPAD_RIGHT,
-            KeyEvent.KEYCODE_DPAD_UP,
-            KeyEvent.KEYCODE_DPAD_DOWN -> handleDpadDirection(keyCode)
-            KeyEvent.KEYCODE_TAB -> handleTabKey()
-            else -> false
-        }
-    }
-
-    /**
-     * Navigate focus or perform global DPAD actions to mimic directional key presses.
-     */
-    private fun handleDpadDirection(keyCode: Int): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val action = when (keyCode) {
-                KeyEvent.KEYCODE_DPAD_LEFT -> AccessibilityService.GLOBAL_ACTION_DPAD_LEFT
-                KeyEvent.KEYCODE_DPAD_RIGHT -> AccessibilityService.GLOBAL_ACTION_DPAD_RIGHT
-                KeyEvent.KEYCODE_DPAD_UP -> AccessibilityService.GLOBAL_ACTION_DPAD_UP
-                KeyEvent.KEYCODE_DPAD_DOWN -> AccessibilityService.GLOBAL_ACTION_DPAD_DOWN
-                else -> return false
+    private fun handleAccessibilityKeyEvent(keyEvent: KeyEvent): Boolean {
+        if (keyEvent.action != KeyEvent.ACTION_DOWN) return false
+        return when (keyEvent.keyCode) {
+            KeyEvent.KEYCODE_DEL -> removeCharacterAtCursor(false)
+            KeyEvent.KEYCODE_FORWARD_DEL -> removeCharacterAtCursor(true)
+            KeyEvent.KEYCODE_DPAD_LEFT -> moveCursor("ArrowLeft")
+            KeyEvent.KEYCODE_DPAD_RIGHT -> moveCursor("ArrowRight")
+            KeyEvent.KEYCODE_DPAD_UP -> moveCursor("ArrowUp")
+            KeyEvent.KEYCODE_DPAD_DOWN -> moveCursor("ArrowDown")
+            KeyEvent.KEYCODE_HOME -> moveCursor("Home")
+            KeyEvent.KEYCODE_MOVE_END -> moveCursor("End")
+            KeyEvent.KEYCODE_ENTER -> handleEnterKey()
+            KeyEvent.KEYCODE_TAB -> moveFocusForward()
+            else -> {
+                val unicodeChar = keyEvent.unicodeChar
+                if (unicodeChar in 32..255) {
+                    enterText(unicodeChar.toChar().toString())
+                } else {
+                    false
+                }
             }
-            return performGlobalAction(action)
         }
-        val displayId = getDefaultDisplayId()
-        val focusNode = getOrFindFocusNode(displayId) ?: return false
-        val handled = if (focusNode.isEditable && tryTextTraversal(keyCode, focusNode)) {
+    }
+
+    private fun enterText(text: String): Boolean {
+        return withFocusedEditableNode { node ->
+            val existingText = getExistingText(node)?.toString() ?: ""
+            val selectionStart = node.textSelectionStart.takeIf { it >= 0 } ?: existingText.length
+            val selectionEnd = node.textSelectionEnd.takeIf { it >= 0 } ?: selectionStart
+            val typeInMiddle = selectionStart > -1 && selectionStart < existingText.length
+            val newText = if (typeInMiddle) {
+                existingText.substring(0, selectionStart) + text + existingText.substring(selectionEnd)
+            } else {
+                existingText + text
+            }
+            val cursorPos = if (typeInMiddle) selectionStart + text.length else newText.length
+            val result = replaceTextInNode(node, newText, cursorPos)
+            if (node.isPassword) {
+                savePasswordText(node, newText)
+            }
+            result
+        }
+    }
+
+    private fun removeCharacterAtCursor(removeForward: Boolean): Boolean {
+        return withFocusedEditableNode { node ->
+            val existingText = getExistingText(node)?.toString() ?: return@withFocusedEditableNode false
+            val selectionStart = node.textSelectionStart.takeIf { it >= 0 } ?: existingText.length
+            val selectionEnd = node.textSelectionEnd.takeIf { it >= 0 } ?: selectionStart
+            if (existingText.isEmpty()) return@withFocusedEditableNode false
+            val typeInMiddle = selectionStart > -1 && selectionStart < existingText.length
+            val (newText, cursorPos) = if (typeInMiddle) {
+                if (selectionEnd > selectionStart) {
+                    val updated = existingText.removeRange(selectionStart, selectionEnd)
+                    updated to selectionStart
+                } else if (!removeForward && selectionStart > 0) {
+                    val updated = existingText.removeRange(selectionStart - 1, selectionStart)
+                    updated to selectionStart - 1
+                } else if (removeForward && selectionEnd < existingText.length) {
+                    val updated = existingText.removeRange(selectionEnd, selectionEnd + 1)
+                    updated to selectionEnd
+                } else {
+                    existingText to selectionStart
+                }
+            } else if (removeForward) {
+                if (selectionStart >= existingText.length) return@withFocusedEditableNode false
+                val updated = existingText.removeRange(selectionStart, selectionStart + 1)
+                updated to selectionStart
+            } else {
+                if (existingText.isEmpty()) return@withFocusedEditableNode false
+                val updated = existingText.removeRange(existingText.length - 1, existingText.length)
+                updated to existingText.length - 1
+            }
+            val result = replaceTextInNode(node, newText, cursorPos.coerceAtLeast(0))
+            if (node.isPassword) {
+                savePasswordText(node, newText)
+            }
+            result
+        }
+    }
+
+    private fun moveCursor(command: String): Boolean {
+        return withFocusedEditableNode { node ->
+            val existingText = getExistingText(node)?.toString() ?: return@withFocusedEditableNode false
+            if (existingText.isEmpty()) return@withFocusedEditableNode false
+            val selectionStart = node.textSelectionStart.takeIf { it >= 0 } ?: existingText.length
+            val selectionEnd = node.textSelectionEnd.takeIf { it >= 0 } ?: selectionStart
+            val targetPosition = when (command) {
+                "ArrowLeft" -> if (selectionEnd > selectionStart) selectionStart else (selectionStart - 1).coerceAtLeast(0)
+                "ArrowRight" -> if (selectionEnd > selectionStart) selectionEnd else (selectionEnd + 1).coerceAtMost(existingText.length)
+                "ArrowUp" -> 0
+                "ArrowDown" -> existingText.length
+                "Home" -> 0
+                "End" -> existingText.length
+                else -> return@withFocusedEditableNode false
+            }
+            setSelection(node, targetPosition, existingText.length)
             true
-        } else {
-            handleFocusTraversal(keyCode, focusNode)
         }
-        focusNode.recycle()
-        return handled
     }
 
-    /**
-     * Try to move focus in the requested direction; fall back to searching for another focusable
-     * node from the root if needed.
-     */
-    private fun handleFocusTraversal(keyCode: Int, focusNode: AccessibilityNodeInfo): Boolean {
-        val direction = when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_LEFT -> View.FOCUS_LEFT
-            KeyEvent.KEYCODE_DPAD_RIGHT -> View.FOCUS_RIGHT
-            KeyEvent.KEYCODE_DPAD_UP -> View.FOCUS_UP
-            KeyEvent.KEYCODE_DPAD_DOWN -> View.FOCUS_DOWN
-            else -> return false
-        }
-        val nextFocus = focusNode.focusSearch(direction)
-        if (nextFocus != null) {
-            val changed = nextFocus.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-            nextFocus.recycle()
-            return changed
-        }
-        val newFocus = findFocusableNodeFromRoot()
-        if (newFocus != null) {
-            val changed = newFocus.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-            newFocus.recycle()
-            return changed
-        }
-        return false
-    }
-
-    /**
-     * Make fine-grained text navigation within editable nodes, mimicking typing cursor moves.
-     */
-    private fun tryTextTraversal(keyCode: Int, focusNode: AccessibilityNodeInfo): Boolean {
-        val actionId = if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-            AccessibilityNodeInfo.AccessibilityAction.ACTION_PREVIOUS_AT_MOVEMENT_GRANULARITY.id
-        } else {
-            AccessibilityNodeInfo.AccessibilityAction.ACTION_NEXT_AT_MOVEMENT_GRANULARITY.id
-        }
-        val granularity = if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-            AccessibilityNodeInfo.MOVEMENT_GRANULARITY_CHARACTER
-        } else {
-            AccessibilityNodeInfo.MOVEMENT_GRANULARITY_LINE
-        }
-        val bundle = Bundle().apply {
-            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_MOVEMENT_GRANULARITY_INT, granularity)
-            putBoolean(AccessibilityNodeInfo.ACTION_ARGUMENT_EXTEND_SELECTION_BOOLEAN, false)
-        }
-        return focusNode.performAction(actionId, bundle)
-    }
-
-    /**
-     * Advance focus forward when Tab is pressed using AccessibilityNodeInfo traversal.
-     */
-    private fun handleTabKey(): Boolean {
-        val displayId = getDefaultDisplayId()
-        val focusNode = getOrFindFocusNode(displayId) ?: return false
-        val nextFocus = focusNode.focusSearch(View.FOCUS_FORWARD)
-        focusNode.recycle()
-        if (nextFocus != null) {
-            val changed = nextFocus.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-            nextFocus.recycle()
-            return changed
-        }
-        return false
-    }
-
-    /**
-     * Return the cached focus node for the display or search the tree when none exists.
-     */
-    private fun getOrFindFocusNode(displayId: Int): AccessibilityNodeInfo? {
-        keyboardFocusNodes[displayId]?.let { return AccessibilityNodeInfo.obtain(it) }
-        val newNode = findFocusableNodeFromRoot()
-        if (newNode != null) {
-            keyboardFocusNodes[displayId]?.recycle()
-            keyboardFocusNodes[displayId] = AccessibilityNodeInfo.obtain(newNode)
-        }
-        return newNode
-    }
-
-    /**
-     * Walk the active window's tree looking for the first focusable node to resume navigation.
-     */
-    private fun findFocusableNodeFromRoot(): AccessibilityNodeInfo? {
-        val root = rootInActiveWindow ?: return null
-        val result = findFocusableNodeRecursive(root)
+    private fun moveFocusForward(): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val focusable = findFocusableNodeRecursive(root)
         root.recycle()
+        return focusable?.let {
+            val changed = it.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            it.recycle()
+            changed
+        } ?: false
+    }
+
+    private fun handleEnterKey(): Boolean {
+        return withFocusedEditableNode { node ->
+            val actions = node.actionList
+            val args = Bundle()
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                        actions.contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER) ->
+                    node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id, args)
+                actions.contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK) ->
+                    node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK.id, args)
+                else -> false
+            }
+        }
+    }
+
+    private fun replaceTextInNode(node: AccessibilityNodeInfo, newText: String, cursorPos: Int): Boolean {
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
+        }
+        val result = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        if (result) {
+            setSelection(node, cursorPos)
+        }
         return result
     }
 
-    /**
-     * Depth-first search helper that returns the first focusable node encountered.
-     */
+    private fun setSelection(node: AccessibilityNodeInfo, position: Int) {
+        val clamped = position.coerceIn(0, (node.text?.length ?: 0))
+        val args = Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, clamped)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, clamped)
+        }
+        node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_SELECTION.id, args)
+    }
+
+    private inline fun withFocusedEditableNode(block: (AccessibilityNodeInfo) -> Boolean): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val focusNode = findFocusedField(root)
+        root.recycle()
+        focusNode ?: return false
+        return try {
+            block(focusNode)
+        } finally {
+            focusNode.recycle()
+        }
+    }
+
+    private fun getExistingText(node: AccessibilityNodeInfo): CharSequence? {
+        if (node.isPassword) {
+            val text = node.text
+            if (text == null || text.isEmpty()) {
+                passwordTexts.remove(node.windowId)
+                return null
+            }
+            return passwordTexts[node.windowId]?.takeIf { !it.isExpired() }?.text
+        }
+        var existing = node.text
+        if (existing != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val hint = node.hintText
+            if (hint != null && existing == hint) {
+                existing = null
+            }
+        }
+        return existing
+    }
+
+    private fun savePasswordText(node: AccessibilityNodeInfo, text: String) {
+        passwordTexts[node.windowId] = PasswordText(text)
+    }
+
+    private fun findFocusedField(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        if (node.isEditable && node.isFocused) {
+            return AccessibilityNodeInfo.obtain(node)
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            val focused = findFocusedField(child)
+            child?.recycle()
+            if (focused != null) {
+                return focused
+            }
+        }
+        return null
+    }
+
     private fun findFocusableNodeRecursive(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
         if (node.isFocusable) return AccessibilityNodeInfo.obtain(node)
@@ -688,7 +759,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
         return null
     }
 
-    private fun getDefaultDisplayId(): Int {
-        return Display.DEFAULT_DISPLAY
+    private data class PasswordText(val text: String, val timestamp: Long = System.currentTimeMillis()) {
+        fun isExpired(): Boolean = timestamp < System.currentTimeMillis() - 300_000
     }
 }
