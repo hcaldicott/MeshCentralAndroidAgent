@@ -10,7 +10,6 @@
     <string name="disconnect">Disconnect</string>
     <string name="clear_server">Clear Server</string>
     <string name="no_server_setup">No Server Setup</string>
-    <string name="invalid_qrcode">Invalid QR code</string>
     <string name="next">Next</string>
     <string name="previous">Previous</string>
     <string name="ok">OK</string>
@@ -37,6 +36,15 @@
     <string name="loginVerification">Login Verification</string>
     <string name="title_activity_settings">SettingsActivity</string>
     <string name="tryingToConnect">Trying...</string>
+
+    <!-- QR Code Scanning -->
+    <string name="invalid_qrcode">Invalid QR code</string>
+    <string name="scanner_instruction">Point camera at MeshCentral QR code</string>
+    <string name="scanner_status_scanning">Scanning for MeshCentral QR code...</string>
+    <string name="scanner_status_processing">Processing scan...</string>
+    <string name="scanner_switch_camera">Switch camera</string>
+    <string name="scanner_flash_on">Flash On</string>
+    <string name="scanner_flash_off">Flash Off</string>
 
     <!-- Preference Titles -->
     <string name="messages_header">Messages</string>
