@@ -173,7 +173,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
     override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
         try {
             //println("onBinaryMessage: ${bytes.size}, ${bytes.toByteArray().toHex()}")
-            if (bytes.size < 2) return;
+            if (bytes.size < 2) return
             if ((connectionState == 3) && (bytes[0].toInt() == 123)) {
                 // If we are authenticated, process JSON data
                 processAgentData(String(bytes.toByteArray(), Charsets.UTF_8))
@@ -185,7 +185,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
             when (cmd) {
                 1 -> {
                     // Server authentication request
-                    if (bytes.size != 98) return;
+                    if (bytes.size != 98) return
                     var serverCertHash = bytes.substring(2, 50).toByteArray()
                     if (!serverCertHash.contentEquals(serverTlsCertHash!!)) {
                         Log.e(logTag, "Server Hash Mismatch, given=${serverCertHash.toHex()}, computed=${serverTlsCertHash?.toHex()}")
@@ -243,16 +243,16 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     connectionState = connectionState or 1
 
                     //println("Host: ${android.os.Build.HOST}")
-                    var agentid = 14;           // This of agent (14, Android in this case)
+                    var agentid = 14           // This of agent (14, Android in this case)
                     var agentver = 0            // Agent version (TODO)
-                    var platfromType = 3;       // This is the icon: 1 = Desktop, 2 = Laptop, 3 = Mobile, 4 = Server, 5 = Disk, 6 = Router
-                    var capabilities = 12;      // Capabilities of the agent (bitmask): 1 = Desktop, 2 = Terminal, 4 = Files, 8 = Console, 16 = JavaScript
-                    var deviceName: String? = null;
+                    var platfromType = 3       // This is the icon: 1 = Desktop, 2 = Laptop, 3 = Mobile, 4 = Server, 5 = Disk, 6 = Router
+                    var capabilities = 12      // Capabilities of the agent (bitmask): 1 = Desktop, 2 = Terminal, 4 = Files, 8 = Console, 16 = JavaScript
+                    var deviceName: String? = null
                     if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S) {
-                       deviceName = Settings.Secure.getString(parent.contentResolver, "bluetooth_name");
+                    deviceName = Settings.Secure.getString(parent.contentResolver, "bluetooth_name")
                     }
                     if (deviceName == null) {
-                        deviceName = Settings.Global.getString(parent.contentResolver, Settings.Global.DEVICE_NAME) ?: "UNKNOWN_DEVICE_NAME";
+                        deviceName = Settings.Global.getString(parent.contentResolver, Settings.Global.DEVICE_NAME) ?: "UNKNOWN_DEVICE_NAME"
                     }
                     val deviceNameUtf = deviceName.toByteArray(Charsets.UTF_8)
                     //println("DeviceName: ${deviceName}")
@@ -392,15 +392,15 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                             // Event to the server
                             var eventArgs = JSONArray()
                             eventArgs.put(xurl)
-                            logServerEventEx(20, eventArgs, "Opening: ${xurl}", json);
+                            logServerEventEx(20, eventArgs, "Opening: ${xurl}", json)
                         }
                     }
                     */
 
                     var xurl = json.optString("url")
                     if (xurl != null) {
-                        var getintent: Intent = Intent(Intent.ACTION_VIEW, Uri.parse(xurl));
-                        parent.startActivity(getintent);
+                        var getintent: Intent = Intent(Intent.ACTION_VIEW, Uri.parse(xurl))
+                        parent.startActivity(getintent)
                     }
                 }
                 "msg" -> {
@@ -439,7 +439,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                                 var hostdns: String = host
                                 var i = host.indexOf('/') // If the hostname includes an extra domain, remove it.
                                 if (i > 0) {
-                                    hostdns = host.substring(0, i); }
+                        hostdns = host.substring(0, i) }
                                 url = "wss://$hostdns" + url.substring(1)
                             }
                             val tunnel = MeshTunnel(this, url, json)
@@ -465,8 +465,9 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     var ximage: String? = json.optString("image")
                     var xuserImage: Bitmap? = null
 
-                    if ((ximage != null) && (!ximage.startsWith("data:image/jpeg;base64,"))) {
-                        ximage = null; }
+                    if ((ximage != null) && (!ximage.startsWith("data:image.jpeg;base64,"))) {
+                        ximage = null
+                    }
 
                     if (ximage != null) {
                         try {
@@ -498,7 +499,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     serverTitle = json.optString("title")
                     serverSubTitle = json.optString("subtitle")
                     var ximage: String? = json.optString("image")
-                    if ((ximage != null) && (!ximage.startsWith("data:image/jpeg;base64,"))) { ximage = null; }
+                        if ((ximage != null) && (!ximage.startsWith("data:image/jpeg;base64,"))) { ximage = null }
 
                     // Decode the image
                     if (ximage != null) {
@@ -576,7 +577,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
     }
 
     fun sendNetworkUpdate(force: Boolean) : Boolean {
-        var netinfo = getNetInfo();
+        var netinfo = getNetInfo()
         if ((force == false) && (lastNetInfo != null)) {
             var netinfostr = netinfo.toString()
             if (lastNetInfo.equals(netinfostr)) return false
@@ -587,7 +588,10 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
         val r = JSONObject()
         r.put("action", "netinfo")
         r.put("netif2", netinfo)
-        if (_webSocket != null) {_webSocket?.send(r.toString().toByteArray().toByteString()); return true }
+        if (_webSocket != null) {
+            _webSocket?.send(r.toString().toByteArray().toByteString())
+            return true
+        }
         return false
     }
 
@@ -613,7 +617,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
         r.put("type", android.os.Build.TYPE)
         r.put("user", android.os.Build.USER)
         r.put("radioVersion", android.os.Build.getRadioVersion())
-        return r;
+        return r
     }
 
     private fun getStorageInfo() : JSONArray {
@@ -661,7 +665,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
 
     fun batteryStateChanged(intent: Intent) {
         // Get the battery status, if it did not chance, don't send anything to the server
-        var battState : JSONObject? = getSysBatteryInfo();
+        var battState : JSONObject? = getSysBatteryInfo()
         if (battState != null) {
             if ((lastBattState != null) &&
                     ((lastBattState?.getInt("level") == battState.getInt("level"))
@@ -696,7 +700,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                 r.put("state", "dc")
             }
             r.put("level", batteryPct)
-            return r;
+            return r
         }
         catch (e: Exception) { }
         return null
@@ -730,7 +734,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
         // Log the incoming console command to the server
         var eventArgs = JSONArray()
         eventArgs.put(cmdLine)
-        logServerEventEx(17, eventArgs, "Processing console command: $cmdLine", jsoncmd);
+        logServerEventEx(17, eventArgs, "Processing console command: $cmdLine", jsoncmd)
 
         when (cmd) {
             "help" -> {
@@ -740,33 +744,33 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
             "alert" -> {
                 // Display alert message
                 if (splitCmd.size < 2) {
-                    r = "Usage:\r\n  alert \"Message\" \"Title\"";
+                    r = "Usage:\r\n  alert \"Message\" \"Title\""
                 } else if (splitCmd.size == 2) {
                     // Event to the server
                     var eventArgs = JSONArray()
                     eventArgs.put("Alert")
                     eventArgs.put(splitCmd[1])
-                    logServerEventEx(18, eventArgs, "Displaying message box, title=" + splitCmd[2] + ", message=" + splitCmd[1], jsoncmd);
+                    logServerEventEx(18, eventArgs, "Displaying message box, title=" + splitCmd[2] + ", message=" + splitCmd[1], jsoncmd)
 
                     // Show the alert
                     parent.showAlertMessage("Alert", splitCmd[1])
-                    r = "Ok";
+                    r = "Ok"
                 } else if (splitCmd.size > 2) {
                     // Event to the server
                     var eventArgs = JSONArray()
                     eventArgs.put(splitCmd[2])
                     eventArgs.put(splitCmd[1])
-                    logServerEventEx(18, eventArgs, "Displaying message box, title=" + splitCmd[2] + ", message=" + splitCmd[1], jsoncmd);
+                    logServerEventEx(18, eventArgs, "Displaying message box, title=" + splitCmd[2] + ", message=" + splitCmd[1], jsoncmd)
 
                     // Show the alert
                     parent.showAlertMessage(splitCmd[2], splitCmd[1])
-                    r = "Ok";
+                    r = "Ok"
                 }
             }
             "toast" -> {
                 // Display toast message
                 if (splitCmd.size < 2) {
-                    r = "Usage:\r\n  toast \"Message\"";
+                    r = "Usage:\r\n  toast \"Message\""
                 } else if (splitCmd.size >= 2) {
                     parent.showToastMessage(splitCmd[1])
 
@@ -774,16 +778,16 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     var eventArgs = JSONArray()
                     eventArgs.put("None")
                     eventArgs.put(splitCmd[1])
-                    logServerEventEx(26, eventArgs, "Displaying toast message, title=None, message=${splitCmd[1]}", jsoncmd);
-                    r = "Ok";
+                    logServerEventEx(26, eventArgs, "Displaying toast message, title=None, message=${splitCmd[1]}", jsoncmd)
+                    r = "Ok"
                 }
             }
             "dial" -> {
                 if (splitCmd.size < 2) {
-                    r = "Usage:\r\n  dial [phonenumber]";
+                    r = "Usage:\r\n  dial [phonenumber]"
                 } else if (splitCmd.size >= 2) {
-                    var getintent: Intent = Intent(Intent.ACTION_VIEW, Uri.parse("tel:${splitCmd[1]}"));
-                    parent.startActivity(getintent);
+                    var getintent: Intent = Intent(Intent.ACTION_VIEW, Uri.parse("tel:${splitCmd[1]}"))
+                    parent.startActivity(getintent)
                     r = "ok"
                 }
             }
@@ -801,7 +805,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
             }
             "battery" -> {
                 // Battery info
-                var battState: JSONObject? = getSysBatteryInfo();
+                var battState: JSONObject? = getSysBatteryInfo()
                 if (battState == null) {
                     r = "No battery"
                 } else {
@@ -811,7 +815,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
             "openbrowser" -> {
                 // Open a URL
                 if (splitCmd.size < 2) {
-                    r = "Usage:\r\n  openbrowser \"url\"";
+                    r = "Usage:\r\n  openbrowser \"url\""
                 } else if (splitCmd.size >= 2) {
                     if (splitCmd[1].startsWith("https://") || splitCmd[1].startsWith("http://")) {
                         if (visibleScreen == 2) {
@@ -819,8 +823,8 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                         } else {
                             // Open the URL
                             try {
-                                var getintent: Intent = Intent(Intent.ACTION_VIEW, Uri.parse(splitCmd[1]));
-                                parent.startActivity(getintent);
+                                var getintent: Intent = Intent(Intent.ACTION_VIEW, Uri.parse(splitCmd[1]))
+                                parent.startActivity(getintent)
                                 r = "Ok"
                             } catch (ex: Exception) {
                                 r = "Error opening: ${splitCmd[1]}"
@@ -834,7 +838,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
             "openurl" -> {
                 // Open a URL in the agent application
                 if (splitCmd.size < 2) {
-                    r = "Usage:\r\n  openurl \"url\"";
+                    r = "Usage:\r\n  openurl \"url\""
                 } else if (splitCmd.size >= 2) {
                     if (splitCmd[1].startsWith("https://") || splitCmd[1].startsWith("http://")) {
                         if (visibleScreen == 2) {
@@ -842,14 +846,14 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                         } else {
                             // Open the URL
                             if (parent.openUrl(splitCmd[1])) {
-                                r = "Ok";
+                                r = "Ok"
 
                                 // Event to the server
                                 var eventArgs = JSONArray()
                                 eventArgs.put(splitCmd[1])
-                                logServerEventEx(20, eventArgs, "Opening: ${splitCmd[1]}", jsoncmd);
+                                logServerEventEx(20, eventArgs, "Opening: ${splitCmd[1]}", jsoncmd)
                             } else {
-                                r = "Busy";
+                                r = "Busy"
                             }
                         }
                     } else {
@@ -879,7 +883,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
             "serverlog" -> {
                 // Log an event to the server
                 if (splitCmd.size < 2) {
-                    r = "Usage:\r\n  serverlog \"event\"";
+                    r = "Usage:\r\n  serverlog \"event\""
                 } else if (splitCmd.size >= 2) {
                     logServerEvent(splitCmd[1], jsoncmd)
                     r = "ok"
@@ -906,7 +910,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
             "vibrate" -> {
                 // Vibrate the device
                 if (splitCmd.size < 2) {
-                    r = "Usage:\r\n  vibrate [milliseconds]";
+                    r = "Usage:\r\n  vibrate [milliseconds]"
                 } else if (splitCmd.size >= 2) {
                     var t: Long = 0
                     try {
@@ -941,10 +945,10 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
             }
             "flash" -> {
                 if (splitCmd.size < 2) {
-                    r = "Usage:\r\n  flash [milliseconds]";
+                    r = "Usage:\r\n  flash [milliseconds]"
                 } else if (splitCmd.size >= 2) {
                     var isFlashAvailable = parent.applicationContext.packageManager
-                            .hasSystemFeature(PackageManager.FEATURE_CAMERA_FRONT);
+                            .hasSystemFeature(PackageManager.FEATURE_CAMERA_FRONT)
                     if (!isFlashAvailable) {
                         r = "Flash not available"
                     } else {
@@ -956,11 +960,11 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                         if ((t > 0) && (t <= 10000)) {
                             var mCameraManager = parent.applicationContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
                             try {
-                                var mCameraId = mCameraManager.cameraIdList[0];
-                                mCameraManager.setTorchMode(mCameraId, true);
+                                var mCameraId = mCameraManager.cameraIdList[0]
+                                mCameraManager.setTorchMode(mCameraId, true)
                                 thread {
                                     Thread.sleep(t)
-                                    mCameraManager.setTorchMode(mCameraId, false);
+                                    mCameraManager.setTorchMode(mCameraId, false)
                                 }
                                 r = "ok"
                             } catch (e: CameraAccessException) {

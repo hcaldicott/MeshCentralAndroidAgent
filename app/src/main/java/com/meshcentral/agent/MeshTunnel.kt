@@ -20,11 +20,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 //import org.webrtc.PeerConnectionFactory
 import java.io.*
-import java.nio.charset.Charset
 import java.security.MessageDigest
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
-import java.util.*
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.SSLContext
@@ -187,7 +185,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
     override fun onMessage(webSocket: WebSocket, text: String) {
         //println("Tunnel-onMessage: $text")
         if (state == 0) {
-            if ((text == "c") || (text == "cr")) { state = 1; }
+            if ((text == "c") || (text == "cr")) { state = 1 }
             return
         }
         else if (state == 1) {
@@ -199,14 +197,17 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
             } else {
                 val xusage = text.toInt()
                 if (((xusage < 1) || (xusage > 5)) && (xusage != 10)) {
-                    Log.d(logTag, "Invalid usage $text"); stopSocket(); return
+                    Log.d(logTag, "Invalid usage $text")
+                    stopSocket()
+                    return
                 }
                 val serverExpectedUsage = serverData.optInt("usage")
                 if ((serverExpectedUsage != 0) && (serverExpectedUsage != xusage)) {
-                    Log.d(logTag, "Unexpected usage $text != $serverExpectedUsage");
-                    stopSocket(); return
+                    Log.d(logTag, "Unexpected usage $text != $serverExpectedUsage")
+                    stopSocket()
+                    return
                 }
-                usage = xusage; // 2 = Desktop, 5 = Files, 10 = File transfer
+                usage = xusage // 2 = Desktop, 5 = Files, 10 = File transfer
                 state = 2
 
                 // Start the connection time except if this is a file transfer
@@ -243,13 +244,13 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 } else {
                     // This is a file transfer
                     if (tunnelOptions == null) {
-                        Log.e(logTag, "No file transfer options");
-                        stopSocket();
+                        Log.e(logTag, "No file transfer options")
+                        stopSocket()
                     } else {
                         val filename = tunnelOptions?.optString("file")
                         if (filename == null) {
-                            Log.e(logTag, "No file transfer name");
-                            stopSocket();
+                            Log.e(logTag, "No file transfer name")
+                            stopSocket()
                         } else {
                             //println("File transfer usage")
                             startFileTransfer(filename)
@@ -262,7 +263,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
 
     override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
         //println("Tunnel-onBinaryMessage: ${bytes.size}, ${bytes.toByteArray().toHex()}")
-        if ((state != 2) || (bytes.size < 2)) return;
+        if ((state != 2) || (bytes.size < 2)) return
         try {
             if (bytes[0].toInt() == 123) {
                 // If we are authenticated, process JSON data
@@ -271,7 +272,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 // If this is file upload data, process it here
                 if (bytes[0].toInt() == 0) {
                     // If data starts with zero, skip the first byte. This is used to escape binary file data from JSON.
-                    fileUploadSize += (bytes.size - 1);
+                    fileUploadSize += (bytes.size - 1)
                     val buf = bytes.toByteArray()
                     try {
                         fileUpload?.write(buf, 1, buf.size - 1)
@@ -282,7 +283,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                     }
                 } else {
                     // If data does not start with zero, save as-is.
-                    fileUploadSize += bytes.size;
+                    fileUploadSize += bytes.size
                     try {
                         fileUpload?.write(bytes.toByteArray())
                     } catch (_ : Exception) {
@@ -646,7 +647,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                     //r.put(JSONObject("{n:\"Documents\",t:2}"))
                     json.put("dir", r)
                 } else {
-                    lastDirRequest = json; // Bit of a hack, but use this to refresh after a file delete
+                    lastDirRequest = json // Bit of a hack, but use this to refresh after a file delete
                     json.put("dir", getFolder(path))
                 }
                 _webSocket?.send(json.toString().toByteArray(Charsets.UTF_8).toByteString())
@@ -666,7 +667,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 // Close previous upload
                 if (fileUpload != null) {
                     fileUpload?.close()
-                    fileUpload = null;
+                    fileUpload = null
                 }
 
                 // Setup
@@ -740,9 +741,9 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 if (_webSocket != null) { _webSocket?.send(jsonResponse.toString().toByteArray().toByteString()) }
             }
             "uploaddone" -> {
-                if (fileUpload == null) return;
+            if (fileUpload == null) return
                 fileUpload?.close()
-                fileUpload = null;
+            fileUpload = null
 
                 // Send response
                 val jsonResponse = JSONObject()
@@ -754,7 +755,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 val eventArgs = JSONArray()
                 eventArgs.put(fileUploadName)
                 eventArgs.put(fileUploadSize)
-                parent.logServerEventEx(105, eventArgs, "Upload: \"${fileUploadName}}\", Size: $fileUploadSize", serverData);
+                parent.logServerEventEx(105, eventArgs, "Upload: \"${fileUploadName}}\", Size: $fileUploadSize", serverData)
             }
             else -> {
                 // Unknown command, ignore it.
@@ -772,7 +773,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 MediaStore.MediaColumns.SIZE,
                 MediaStore.MediaColumns.MIME_TYPE
         )
-        var uri : Uri? = null;
+        var uri : Uri? = null
         if (dir.startsWith("Sdcard")) { uri = Uri.fromFile(Environment.getExternalStorageDirectory()) }
         if (dir == "Images") { uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI }
         if (dir == "Audio") { uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI }
@@ -816,7 +817,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 }
             }
         }
-        return r;
+        return r
     }
 
     fun deleteFile(path: String, filenames: JSONArray, req: JSONObject) {
@@ -828,7 +829,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 MediaStore.MediaColumns.DISPLAY_NAME,
                 MediaStore.MediaColumns.SIZE
         )
-        var uri : Uri? = null;
+        var uri : Uri? = null
         if (path.startsWith("Sdcard")) { uri = Uri.fromFile(Environment.getExternalStorageDirectory()) }
         if (path == "Images") { uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI }
         if (path == "Audio") { uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI }
@@ -924,13 +925,16 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 MediaStore.MediaColumns.DISPLAY_NAME,
                 MediaStore.MediaColumns.SIZE
         )
-        var uri : Uri? = null;
+        var uri : Uri? = null
         if (filenameSplit[0].startsWith("Sdcard")) { uri = Uri.fromFile(Environment.getExternalStorageDirectory()) }
         if (filenameSplit[0] == "Images") { uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI }
         if (filenameSplit[0] == "Audio") { uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI }
         if (filenameSplit[0] == "Videos") { uri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI }
         //if (filenameSplit[0] == "Documents") { uri = MediaStore.Files. }
-        if (uri == null) { stopSocket(); return }
+        if (uri == null) {
+            stopSocket()
+            return
+        }
         if (filenameSplit[0].startsWith("Sdcard")){
             val path = filename.replaceFirst("Sdcard", Environment.getExternalStorageDirectory().absolutePath)
             val file = File(path)
@@ -950,8 +954,14 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                             var len : Int
                             while (true) {
                                 len = stream!!.read(buf, 0, 65535)
-                                if (len <= 0) { stopSocket(); break; } // Stream is done
-                                if (_webSocket == null) { stopSocket(); break; } // Web socket closed
+                                if (len <= 0) {
+                                    stopSocket()
+                                    break
+                                } // Stream is done
+                                if (_webSocket == null) {
+                                    stopSocket()
+                                    break
+                                } // Web socket closed
                                 _webSocket?.send(buf.toByteString(0, len))
                                 if (_webSocket?.queueSize()!! > 655350) { Thread.sleep(100)}
                             }
@@ -994,8 +1004,14 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                             var len : Int
                             while (true) {
                                 len = stream!!.read(buf, 0, 65535)
-                                if (len <= 0) { stopSocket(); break; } // Stream is done
-                                if (_webSocket == null) { stopSocket(); break; } // Web socket closed
+                                if (len <= 0) {
+                                    stopSocket()
+                                    break
+                                } // Stream is done
+                                if (_webSocket == null) {
+                                    stopSocket()
+                                    break
+                                } // Web socket closed
                                 _webSocket?.send(buf.toByteString(0, len))
                                 if (_webSocket?.queueSize()!! > 655350) { Thread.sleep(100)}
                             }
@@ -1035,7 +1051,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
         if (filenames.length() == 1) {
             val eventArgs = JSONArray()
             eventArgs.put(path + '/' + filenames[0])
-            parent.logServerEventEx(45, eventArgs, "Delete: \"${path}/${filenames[0]}\"", serverData);
+            parent.logServerEventEx(45, eventArgs, "Delete: \"${path}/${filenames[0]}\"", serverData)
         }
 
         if (success && (lastDirRequest != null)) {

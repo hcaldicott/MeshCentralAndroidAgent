@@ -33,7 +33,7 @@ class WebViewFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         webFragment = this
-        visibleScreen = 3;
+        visibleScreen = 3
         browser = view.findViewById(R.id.mainWebView) as WebView
         browser?.settings?.javaScriptEnabled = true
         browser?.webViewClient = object : WebViewClient(){
@@ -42,7 +42,7 @@ class WebViewFragment : Fragment() {
                 url: String?
             ): Boolean {
                 //println("shouldOverrideUrlLoading: $url")
-                pageUrl = url;
+                pageUrl = url
                 view?.loadUrl(url!!)
                 return true
             }
@@ -51,7 +51,7 @@ class WebViewFragment : Fragment() {
             override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler, error: SslError) {
                 // Ignore TLS certificate errors and instruct the WebViewClient to load the website
                 println("onReceivedSslError: $error")
-                handler.proceed();
+                handler.proceed()
             }
 
             override fun onLoadResource(view: WebView?, url: String?) {

@@ -38,13 +38,13 @@ class MainFragment : Fragment(), MultiplePermissionsListener {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         mainFragment = this
-        visibleScreen = 1;
+        visibleScreen = 1
 
         refreshInfo()
         updateBuildTimestampDisplay()
 
         view.findViewById<Button>(R.id.agentActionButton).setOnClickListener {
-            var serverLink = serverLink;
+            var serverLink = serverLink
             if (serverLink == null) {
                 // Setup the server
                 if (cameraPresent) {
@@ -71,9 +71,9 @@ class MainFragment : Fragment(), MultiplePermissionsListener {
 
         // Check if the app was called using a URL link
         if ((activity != null) && ((activity as MainActivity).intent != null) && ((activity as MainActivity).intent.data != null)) {
-            var data: Uri? = (activity as MainActivity).intent.data;
+            var data: Uri? = (activity as MainActivity).intent.data
             if (data != null && data.isHierarchical()) {
-                var uri: String? = (activity as MainActivity).intent.dataString;
+                var uri: String? = (activity as MainActivity).intent.dataString
                 if ((uri != null) && (isMshStringValid(uri))) {
                     confirmServerSetup(uri)
                 }
@@ -113,8 +113,8 @@ class MainFragment : Fragment(), MultiplePermissionsListener {
     }
 
     private fun getStringEx(resId: Int) : String {
-        try { return getString(resId); } catch (ex: Exception) {}
-        return "";
+        try { return getString(resId) } catch (ex: Exception) {}
+        return ""
     }
 
     fun refreshInfo() {
@@ -132,9 +132,9 @@ class MainFragment : Fragment(), MultiplePermissionsListener {
             }
         } else {
             // Server is setup, display state of the agent
-            var state: Int = 0;
+            var state: Int = 0
             if (meshAgent != null) {
-                state = meshAgent!!.state;
+                state = meshAgent!!.state
             }
             view?.findViewById<TextView>(R.id.agentActionButton)?.isEnabled = true
             if (state == 0) {
@@ -195,7 +195,7 @@ class MainFragment : Fragment(), MultiplePermissionsListener {
                 }
 
                 // Set the application title
-                if (meshAgent?.serverTitle != null) { showServerTitle = meshAgent!!.serverTitle; }
+                if (meshAgent?.serverTitle != null) { showServerTitle = meshAgent!!.serverTitle }
 
                 // Set the title
                 var serverNameTitle : String? = getServerHost(serverLink)
@@ -204,7 +204,7 @@ class MainFragment : Fragment(), MultiplePermissionsListener {
                     if (userSessions.size > 1) {
                         serverNameTitle = "${userSessions.size} users have sessions."
                     } else if (userSessions.size == 1) {
-                        val useridsplit: List<String> = userSessions[0].split("/");
+                        val useridsplit: List<String> = userSessions[0].split("/")
                         val userid = useridsplit[0] + "/" + useridsplit[1] + "/" + useridsplit[2]
                         var guestname : String = ""
                         if (useridsplit.size == 4)  { guestname = " - " + useridsplit[3] }
@@ -265,12 +265,12 @@ class MainFragment : Fragment(), MultiplePermissionsListener {
             g_mainActivity?.findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar)
         if (showServerTitle != null) {
             toolbar?.title = showServerTitle
-            getActivity()?.setTitle(showServerTitle);
-            if (meshAgent?.serverSubTitle != null) { toolbar?.subtitle = meshAgent!!.serverSubTitle; }
+            getActivity()?.setTitle(showServerTitle)
+            if (meshAgent?.serverSubTitle != null) { toolbar?.subtitle = meshAgent!!.serverSubTitle }
         } else {
             toolbar?.title = getStringEx(R.string.app_name)
             toolbar?.subtitle = null
-            getActivity()?.setTitle(R.string.app_name);
+            getActivity()?.setTitle(R.string.app_name)
         }
 
         if (showServerLogo == 0) {
@@ -350,14 +350,14 @@ class MainFragment : Fragment(), MultiplePermissionsListener {
         builder.setMessage("Setup to: ${getServerHost(x)}?")
         builder.setPositiveButton(android.R.string.ok) { _, _ ->
             (activity as MainActivity).setMeshServerLink(x)
-            (activity as MainActivity).intent.removeExtra("key");
-            (activity as MainActivity).intent.action = "";
-            (activity as MainActivity).intent.data = null;
+            (activity as MainActivity).intent.removeExtra("key")
+            (activity as MainActivity).intent.action = ""
+            (activity as MainActivity).intent.data = null
         }
         builder.setNeutralButton(android.R.string.cancel) { _, _ ->
-            (activity as MainActivity).intent.removeExtra("key");
-            (activity as MainActivity).intent.action = "";
-            (activity as MainActivity).intent.data = null;
+            (activity as MainActivity).intent.removeExtra("key")
+            (activity as MainActivity).intent.action = ""
+            (activity as MainActivity).intent.data = null
         }
         alert = builder.show()
     }

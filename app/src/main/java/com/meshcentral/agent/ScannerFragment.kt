@@ -41,8 +41,8 @@ class ScannerFragment : Fragment(), PermissionListener {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        scannerFragment = this;
-        visibleScreen = 2;
+        scannerFragment = this
+        visibleScreen = 2
 
         view.findViewById<Button>(R.id.button_second).setOnClickListener {
             lastToast?.cancel()

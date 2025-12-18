@@ -13,8 +13,8 @@ class SettingsFragment : PreferenceFragmentCompat() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        settingsFragment = this;
-        visibleScreen = 5;
+        settingsFragment = this
+        visibleScreen = 5
     }
 
     override fun onDestroy() {

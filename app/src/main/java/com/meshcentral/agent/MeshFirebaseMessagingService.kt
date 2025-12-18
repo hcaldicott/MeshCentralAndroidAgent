@@ -46,16 +46,16 @@ class MeshFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         // The data is empty or the server is not set, bad notification.
-        if ((remoteMessage.data["shash"] == null) || (serverLink == null) || (remoteMessage.data["shash"]!!.length < 12)) return;
+        if ((remoteMessage.data["shash"] == null) || (serverLink == null) || (remoteMessage.data["shash"]!!.length < 12)) return
 
         // Check the server's agent hash against the notification.
         var x : List<String> = serverLink!!.split(',')
-        if (!x[1].startsWith(remoteMessage.data["shash"]!!)) return;
+        if (!x[1].startsWith(remoteMessage.data["shash"]!!)) return
 
         // Get the notification URL if one is present
         var url : String? = null
         if ((remoteMessage.data["url"] != null)) {
-            url = remoteMessage.data["url"];
+            url = remoteMessage.data["url"]
         }
 
         if ((url != null) && (url.startsWith("2fa://"))) {
@@ -64,7 +64,7 @@ class MeshFirebaseMessagingService : FirebaseMessagingService() {
                 g_mainActivity?.runOnUiThread {
                     g_auth_url = Uri.parse(url)
                     if (meshAgent == null) {
-                        g_mainActivity?.toggleAgentConnection(false);
+                        g_mainActivity?.toggleAgentConnection(false)
                     } else {
                         // Switch to 2FA auth screen
                         if (mainFragment != null) {
@@ -75,7 +75,7 @@ class MeshFirebaseMessagingService : FirebaseMessagingService() {
             }
         } else if (remoteMessage.notification != null) {
             if (g_mainActivity != null) {
-                Log.d(logTag, "Showing notification with URL: $url");
+                Log.d(logTag, "Showing notification with URL: $url")
                 g_mainActivity?.showNotification(remoteMessage.notification?.title, remoteMessage.notification?.body, url)
             }
         } else {
@@ -105,12 +105,21 @@ class MeshFirebaseMessagingService : FirebaseMessagingService() {
         for (i in 0..(s.length - 1)) {
             var c = s[i]
             if ((c == ' ') && (q == false)) {
-                if (acc.length > 0) { r.add(acc); acc = ""; }
+                if (acc.length > 0) {
+                    r.add(acc)
+                    acc = ""
+                }
             } else {
-                if (c == '"') { q = !q; } else { acc += c; }
+                if (c == '"') {
+                    q = !q
+                } else {
+                    acc += c
+                }
             }
         }
-        if (acc.length > 0) { r.add(acc); }
+        if (acc.length > 0) {
+            r.add(acc)
+        }
         return r.toList()
     }
 
@@ -139,9 +148,9 @@ class MeshFirebaseMessagingService : FirebaseMessagingService() {
             "vibrate" -> {
                 // Vibrate the device
                 if (splitCmd.size < 2) {
-                    r = "Usage:\r\n  vibrate [milliseconds]";
+                    r = "Usage:\r\n  vibrate [milliseconds]"
                 } else if (g_mainActivity == null) {
-                    r = "No main activity";
+                    r = "No main activity"
                 } else if (splitCmd.size >= 2) {
                     var t : Long = 0
                     try { t = splitCmd[1].toLong() } catch (e : Exception) {}
@@ -173,12 +182,12 @@ class MeshFirebaseMessagingService : FirebaseMessagingService() {
             }
             "flash" -> {
                 if (splitCmd.size < 2) {
-                    r = "Usage:\r\n  flash [milliseconds]";
+                    r = "Usage:\r\n  flash [milliseconds]"
                 } else if (g_mainActivity == null) {
-                    r = "No main activity";
+                    r = "No main activity"
                 } else if (splitCmd.size >= 2) {
                     var isFlashAvailable = g_mainActivity!!.getApplicationContext().getPackageManager()
-                            .hasSystemFeature(PackageManager.FEATURE_CAMERA_FRONT);
+                            .hasSystemFeature(PackageManager.FEATURE_CAMERA_FRONT)
                     if (!isFlashAvailable) {
                         r = "Flash not available"
                     } else {
@@ -187,11 +196,11 @@ class MeshFirebaseMessagingService : FirebaseMessagingService() {
                         if ((t > 0) && (t <= 10000)) {
                             var mCameraManager = g_mainActivity!!.getApplicationContext().getSystemService(Context.CAMERA_SERVICE) as CameraManager
                             try {
-                                var mCameraId = mCameraManager.getCameraIdList()[0];
-                                mCameraManager.setTorchMode(mCameraId, true);
+                                var mCameraId = mCameraManager.getCameraIdList()[0]
+                                mCameraManager.setTorchMode(mCameraId, true)
                                 thread {
                                     Thread.sleep(t)
-                                    mCameraManager.setTorchMode(mCameraId, false);
+                                    mCameraManager.setTorchMode(mCameraId, false)
                                 }
                                 r = "ok"
                             } catch (e: CameraAccessException) {
@@ -232,7 +241,7 @@ class MeshFirebaseMessagingService : FirebaseMessagingService() {
         r.put("type", android.os.Build.TYPE)
         r.put("user", android.os.Build.USER)
         r.put("radioVersion", android.os.Build.getRadioVersion())
-        return r;
+        return r
     }
 
     private fun getNetInfo() : JSONObject {

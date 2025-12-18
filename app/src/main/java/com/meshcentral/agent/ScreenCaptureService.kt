@@ -91,48 +91,54 @@ class ScreenCaptureService : Service() {
                     val wt = (bitmap!!.width / 64)
                     val ht = (bitmap.height / 64)
                     if ((tilesFullWide != wt) || (tilesFullHigh != ht)) {
-                        tilesWide = wt;
-                        tilesHigh = ht;
+                        tilesWide = wt
+                        tilesHigh = ht
                         tilesFullWide = tilesWide
                         tilesFullHigh = tilesHigh
-                        tilesRemainingWidth = (bitmap.width % 64);
-                        tilesRemainingHeight = (bitmap.height % 64);
-                        if (tilesRemainingWidth != 0) { tilesWide++; }
-                        if (tilesRemainingHeight != 0) { tilesHigh++; }
-                        tilesCount = (tilesWide * tilesHigh);
-                        oldcrcs = IntArray(tilesCount); // 64 x 64 tiles
-                        newcrcs = IntArray(tilesCount); // 64 x 64 tiles
+                        tilesRemainingWidth = (bitmap.width % 64)
+                        tilesRemainingHeight = (bitmap.height % 64)
+                        if (tilesRemainingWidth != 0) { tilesWide++ }
+                        if (tilesRemainingHeight != 0) { tilesHigh++ }
+                        tilesCount = (tilesWide * tilesHigh)
+                        oldcrcs = IntArray(tilesCount) // 64 x 64 tiles
+                        newcrcs = IntArray(tilesCount) // 64 x 64 tiles
                         //println("New tile count: $tilesCount")
                     }
 
                     // Compute all tile CRC's
-                    computeAllCRCs(bitmap);
+                    computeAllCRCs(bitmap)
 
                     // Compute how many tiles have changed
-                    var changedTiles : Int = 0;
-                    for (i in 0 until tilesCount) { if (oldcrcs!![i] != newcrcs!![i]) { changedTiles++; } }
+                    var changedTiles : Int = 0
+                    for (i in 0 until tilesCount) {
+                        if (oldcrcs!![i] != newcrcs!![i]) {
+                            changedTiles++
+                        }
+                    }
                     if (changedTiles > 0) {
                         // If 85% of the all tiles have changed, send the entire screen
                         if ((changedTiles * 100) >= (tilesCount * 85))
                         {
                             sendEntireImage(bitmap)
-                            for (i in 0 until tilesCount) { oldcrcs!![i] = newcrcs!![i]; }
+                            for (i in 0 until tilesCount) {
+                                oldcrcs!![i] = newcrcs!![i]
+                            }
                         }
                         else
                         {
                             // Send all changed tiles
                             // This version has horizontal & vertical optimization, JPEG as wide as possible then as high as possible
-                            var sendx : Int = -1;
-                            var sendy : Int = 0;
-                            var sendw : Int = 0;
+                            var sendx : Int = -1
+                            var sendy : Int = 0
+                            var sendw : Int = 0
                             for (i in 0 until tilesHigh)
                             {
                                 for (j in 0 until tilesWide)
                                 {
-                                    val tileNumber : Int = (i * tilesWide) + j;
+                                    val tileNumber : Int = (i * tilesWide) + j
                                     if (oldcrcs!![tileNumber] != newcrcs!![tileNumber])
                                     {
-                                        oldcrcs!![tileNumber] = newcrcs!![tileNumber];
+                                        oldcrcs!![tileNumber] = newcrcs!![tileNumber]
                                         if (sendx == -1) { sendx = j; sendy = i; sendw = 1; } else { sendw += 1; }
                                     }
                                     else
@@ -160,25 +166,27 @@ class ScreenCaptureService : Service() {
         while (h < tilesHigh) {
             // Check if the row is all different
             for (xx in x until (x + w)) {
-                val tileNumber = (h * tilesWide) + xx;
+                val tileNumber = (h * tilesWide) + xx
                 if (oldcrcs!![tileNumber] == newcrcs!![tileNumber]) { exit = true; break; }
             }
             // If all different set the CRC's to the same, otherwise exit.
             if (!exit) {
                 for (xx in x until (x + w)) {
-                    val tileNumber : Int = (h * tilesWide) + xx;
-                    oldcrcs!![tileNumber] = newcrcs!![tileNumber];
+                    val tileNumber : Int = (h * tilesWide) + xx
+                    oldcrcs!![tileNumber] = newcrcs!![tileNumber]
                 }
-            } else break;
+            } else {
+                break
+            }
             h++
         }
         h -= y
-        sendSubImage(bm, x * 64, y * 64, w * 64, h * 64);
+        sendSubImage(bm, x * 64, y * 64, w * 64, h * 64)
     }
 
     private fun Adler32(n : Int, state: Int) : Int {
-        var a = state shr 16;
-        var b = state and 0xFFFF;
+        var a = state shr 16
+        var b = state and 0xFFFF
         a = (a + n) % 65521
         b = (b + a) % 65521
         return (b shl 16) + a
@@ -191,10 +199,10 @@ class ScreenCaptureService : Service() {
 
         // Compute all of the CRC's
         for (y in 0 until tilesHigh) {
-            var h : Int = 64;
+            var h : Int = 64
             if (((y * 64) + 64) > bm.height) { h = (bm.height - (y * 64)) }
             for (x in 0 until tilesWide) {
-                var w : Int = 64;
+                var w : Int = 64
                 if (((x * 64) + 64) > bm.width) { w = (bm.width - (x * 64)) }
                 val t = (y * tilesWide) + x
                 val pixels = IntArray(w * h)
@@ -206,8 +214,8 @@ class ScreenCaptureService : Service() {
 
     // Send a sub bitmap
     private fun sendSubImage(bm: Bitmap, x: Int, y: Int, w: Int, h :Int) {
-        var ww = w;
-        var hh = h;
+        var ww = w
+        var hh = h
         if (x + w > bm.width) { ww = (bm.width - x) }
         if (y + h > bm.height) { hh = (bm.height - y) }
         // Extract the sub bitmap if needed
@@ -297,7 +305,7 @@ class ScreenCaptureService : Service() {
 
     private inner class OrientationChangeCallback internal constructor(context: Context?) : OrientationEventListener(context) {
         override fun onOrientationChanged(orientation: Int) {
-            if (mDisplay == null) return;
+            if (mDisplay == null) return
             val rotation = mDisplay!!.rotation
             //println("rotation $rotation")
             if (rotation != mRotation) {
@@ -510,7 +518,7 @@ class ScreenCaptureService : Service() {
     }
 
     fun updateTunnelDisplaySize() {
-        if (meshAgent == null) return;
+        if (meshAgent == null) return
         for (t in meshAgent!!.tunnels) {
             if ((t.state == 2) && (t.usage == 2)) { // If this is a connected desktop tunnel...
                 t.updateDesktopDisplaySize() // Send updated screen size
@@ -519,7 +527,7 @@ class ScreenCaptureService : Service() {
     }
 
     fun checkNoMoreDesktopTunnels() {
-        if (meshAgent == null) return;
+        if (meshAgent == null) return
         var desktopTunnelCloud = 0
         for (t in meshAgent!!.tunnels) {
             // If this is a connected desktop tunnel, count it
@@ -538,7 +546,7 @@ class ScreenCaptureService : Service() {
 
     // Get the maximum outbound queue size of all remote desktop sockets
     fun checkDesktopTunnelPushback() : Long {
-        if (meshAgent == null) return -1;
+        if (meshAgent == null) return -1
         var maxQueueSize : Long = 0
         for (t in meshAgent!!.tunnels) {
             // If this is a connected desktop tunnel, count it
@@ -552,7 +560,7 @@ class ScreenCaptureService : Service() {
 
     // Send data to all remote desktop sockets
     fun sendDesktopTunnelData(data: ByteString) {
-        if (meshAgent == null) return;
+        if (meshAgent == null) return
         for (t in meshAgent!!.tunnels) {
             // If this is a connected desktop tunnel, send the data
             if ((t.state == 2) && (t.usage == 2) && (t._webSocket != null)) {

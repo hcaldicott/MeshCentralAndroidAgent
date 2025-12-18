@@ -278,7 +278,7 @@ class MainActivity : AppCompatActivity() {
         val item6 = menu.findItem(R.id.action_manual_setup_server)
         item6.isVisible = (visibleScreen == 1) && (serverLink == null) && (hardCodedServerLink == null)
         val item7 = menu.findItem(R.id.action_testAuth)
-        item7.isVisible = false //(visibleScreen == 1) && (serverLink != null);
+        item7.isVisible = false //(visibleScreen == 1) && (serverLink != null)
         val item8 = menu.findItem(R.id.action_settings)
         item8.isVisible = (visibleScreen == 1)
         val item9 = menu.findItem(R.id.action_enablepushauthentication)
@@ -542,7 +542,7 @@ class MainActivity : AppCompatActivity() {
                     val keypair = keyGen.generateKeyPair()
 
                     // Generate Serial Number
-                    var serial = BigInteger("12345678");
+                    var serial = BigInteger("12345678")
                     try { serial = BigInteger.valueOf(Random().nextInt().toLong().absoluteValue) } catch (_: Exception) {}
 
                     // Create self signed certificate
@@ -610,7 +610,9 @@ class MainActivity : AppCompatActivity() {
 
         val intent = Intent(this, MainActivity::class.java)
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        if (url != null) { intent.putExtra("url", url); }
+        if (url != null) {
+            intent.putExtra("url", url)
+        }
         val pendingIntent: PendingIntent
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             pendingIntent =
