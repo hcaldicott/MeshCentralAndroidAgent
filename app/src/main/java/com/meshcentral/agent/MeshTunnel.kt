@@ -370,7 +370,14 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
         if (BuildConfig.DEBUG) {
             Log.d(logTag, "legacy key mapped keyCode=${KeyEvent.keyCodeToString(keyCode)}($keyCode) action=$action meta=$meta")
         }
-        MeshInputAccessibilityService.instance?.injectKey(keyCode, action, meta)
+        val service = MeshInputAccessibilityService.instance
+        if (service == null) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "legacy key dropped because accessibility service is null")
+            }
+            return
+        }
+        service.injectKey(keyCode, action, meta)
     }
 
     private fun handleUnicodeKeyboardInput(msg: ByteString) {
@@ -400,7 +407,14 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
         if (BuildConfig.DEBUG) {
             Log.d(logTag, "unicode key mapped keyCode=${KeyEvent.keyCodeToString(keyCode)}($keyCode)$unicodeChar action=$action meta=$meta")
         }
-        MeshInputAccessibilityService.instance?.injectKey(keyCode, action, meta)
+        val service = MeshInputAccessibilityService.instance
+        if (service == null) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "unicode key dropped because accessibility service is null")
+            }
+            return
+        }
+        service.injectKey(keyCode, action, meta)
     }
 
     private fun handleRemoteInputLock(msg: ByteString) {
@@ -421,6 +435,13 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
             }
             return
         }
+        val service = MeshInputAccessibilityService.instance
+        if (service == null) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "mouse button event dropped because accessibility service unavailable")
+            }
+            return
+        }
         val button = data[offset + 1].toInt() and 0xFF
         val x = ((data[offset + 2].toInt() and 0xFF) shl 8) or (data[offset + 3].toInt() and 0xFF)
         val y = ((data[offset + 4].toInt() and 0xFF) shl 8) or (data[offset + 5].toInt() and 0xFF)
@@ -432,36 +453,46 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
             MeshInputAccessibilityService.instance?.injectMouseScroll(x, y, delta)
             return
         }
+        val (buttonAction, buttonName) = when (button) {
+            2 -> "down" to "left"
+            4 -> "up" to "left"
+            8 -> "down" to "right"
+            16 -> "up" to "right"
+            32 -> "down" to "middle"
+            64 -> "up" to "middle"
+            136 -> "double" to "double"
+            else -> "move" to "unknown"
+        }
         when (button) {
             0 -> {
                 if (BuildConfig.DEBUG) {
                     Log.d(logTag, "mouse move x=$x y=$y")
                 }
-                MeshInputAccessibilityService.instance?.injectMouseMove(x, y)
+                service.injectMouseMove(x, y)
             }
             2, 8, 32 -> {
                 if (BuildConfig.DEBUG) {
-                    Log.d(logTag, "mouse down x=$x y=$y button=$button")
+                    Log.d(logTag, "mouse $buttonAction ($buttonName) x=$x y=$y button=$button")
                 }
-                MeshInputAccessibilityService.instance?.injectMouseDown(x, y)
+                service.injectMouseDown(x, y)
             }
             4, 16, 64 -> {
                 if (BuildConfig.DEBUG) {
-                    Log.d(logTag, "mouse up x=$x y=$y button=$button")
+                    Log.d(logTag, "mouse $buttonAction ($buttonName) x=$x y=$y button=$button")
                 }
-                MeshInputAccessibilityService.instance?.injectMouseUp(x, y)
+                service.injectMouseUp(x, y)
             }
             136 -> {
                 if (BuildConfig.DEBUG) {
-                    Log.d(logTag, "mouse double click x=$x y=$y")
+                    Log.d(logTag, "mouse double click ($buttonName) x=$x y=$y button=$button")
                 }
-                MeshInputAccessibilityService.instance?.injectMouseDoubleClick(x, y)
+                service.injectMouseDoubleClick(x, y)
             }
             else -> {
                 if (BuildConfig.DEBUG) {
                     Log.d(logTag, "mouse default move x=$x y=$y button=$button")
                 }
-                MeshInputAccessibilityService.instance?.injectMouseMove(x, y)
+                service.injectMouseMove(x, y)
             }
         }
     }

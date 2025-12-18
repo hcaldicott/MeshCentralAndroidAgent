@@ -389,6 +389,7 @@ class ScreenCaptureService : Service() {
                 // TODO: Deal with this situation nicely.
             }
             if (mMediaProjection != null) {
+                resetTileState() // force a keyframe when projection restarts
                 // Display metrics
                 mDensity = Resources.getSystem().displayMetrics.densityDpi
                 val windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -420,6 +421,19 @@ class ScreenCaptureService : Service() {
         if (meshAgent != null) {
             meshAgent!!.sendConsoleResponse(r, sessionid = null)
         }
+    }
+
+    // Reset tile tracking so we treat the next capture as a fresh frame for the client.
+    private fun resetTileState() {
+        tilesWide = 0
+        tilesHigh = 0
+        tilesFullWide = 0
+        tilesFullHigh = 0
+        tilesRemainingWidth = 0
+        tilesRemainingHeight = 0
+        tilesCount = 0
+        oldcrcs = null
+        newcrcs = null
     }
 
     private fun stopProjection() {
@@ -505,12 +519,12 @@ class ScreenCaptureService : Service() {
             if ((t.state == 2) && (t.usage == 2)) { desktopTunnelCloud++ }
         }
         if (desktopTunnelCloud == 0) {
+            resetTileState() // clear CRCs when all tunnels close so next viewer gets full image
             // If there are no more desktop tunnels, stop projection
             if (!g_autoConsent) {
                 g_mainActivity!!.stopProjection()
             } else { // reset the tilesFullWide and tilesFullHigh so on next connect it will send the whole image rather than changed tiles
-                tilesFullWide = 0
-                tilesFullHigh = 0
+                // tile state already cleared
             }
         }
     }

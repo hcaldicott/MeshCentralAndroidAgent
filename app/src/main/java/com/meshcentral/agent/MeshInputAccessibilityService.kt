@@ -57,9 +57,20 @@ class MeshInputAccessibilityService : AccessibilityService() {
     }
 
     fun injectKey(keyCode: Int, action: Int, metaState: Int = 0) {
-        if (remoteInputLocked) return
+        if (remoteInputLocked) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "injectKey suppressed (remote input locked) keyCode=${KeyEvent.keyCodeToString(keyCode)} action=$action")
+            }
+            return
+        }
         val eventTime = SystemClock.uptimeMillis()
-        val automation = getUiAutomation() ?: return
+        val automation = getUiAutomation()
+        if (automation == null) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "injectKey failed to get UiAutomation keyCode=${KeyEvent.keyCodeToString(keyCode)} action=$action")
+            }
+            return
+        }
         val keyEvent = KeyEvent(
             eventTime,
             eventTime,
@@ -72,6 +83,12 @@ class MeshInputAccessibilityService : AccessibilityService() {
             KeyEvent.FLAG_FROM_SYSTEM,
             InputDevice.SOURCE_KEYBOARD
         )
+        if (automation == null) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "injectKey failed to get UiAutomation keyCode=$keyCode action=$action")
+            }
+            return
+        }
         if (BuildConfig.DEBUG) {
             val unicodeChar = keyEvent.unicodeChar
             val charPart = if (unicodeChar != 0) " ('${unicodeChar.toChar()}')" else ""
@@ -85,17 +102,44 @@ class MeshInputAccessibilityService : AccessibilityService() {
     }
 
     fun injectMouseDown(x: Int, y: Int) {
+        if (remoteInputLocked) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "injectMouseDown suppressed (remote input locked) x=$x y=$y")
+            }
+            return
+        }
         pointerDown = true
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "injectMouseDown x=$x y=$y")
+        }
         dispatchMotionEvent(MotionEvent.ACTION_DOWN, x, y)
     }
 
     fun injectMouseUp(x: Int, y: Int) {
+        if (remoteInputLocked) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "injectMouseUp suppressed (remote input locked) x=$x y=$y")
+            }
+            return
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "injectMouseUp x=$x y=$y")
+        }
         dispatchMotionEvent(MotionEvent.ACTION_UP, x, y)
         pointerDown = false
         pointerDownTime = 0
     }
 
     fun injectMouseDoubleClick(x: Int, y: Int) {
+        if (remoteInputLocked) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "injectMouseDoubleClick suppressed (remote input locked) x=$x y=$y")
+            }
+            return
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "injectMouseDoubleClick x=$x y=$y")
+        }
         injectMouseDown(x, y)
         injectMouseUp(x, y)
         injectMouseDown(x, y)
