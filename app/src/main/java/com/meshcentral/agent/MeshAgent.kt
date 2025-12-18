@@ -96,7 +96,8 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                serverTlsCertHash = MessageDigest.getInstance("SHA-384").digest(chain?.get(0)?.encoded)
+                val encoded = chain?.get(0)?.encoded ?: return
+                serverTlsCertHash = MessageDigest.getInstance("SHA-384").digest(encoded)
             }
 
             override fun getAcceptedIssuers() = arrayOf<X509Certificate>()
@@ -167,34 +168,34 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
         //println("onMessage: $text")
     }
 
-    override fun onMessage(webSocket: WebSocket, msg: ByteString) {
+    override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
         try {
-            //println("onBinaryMessage: ${msg.size}, ${msg.toByteArray().toHex()}")
-            if (msg.size < 2) return;
-            if ((connectionState == 3) && (msg[0].toInt() == 123)) {
+            //println("onBinaryMessage: ${bytes.size}, ${bytes.toByteArray().toHex()}")
+            if (bytes.size < 2) return;
+            if ((connectionState == 3) && (bytes[0].toInt() == 123)) {
                 // If we are authenticated, process JSON data
-                processAgentData(String(msg.toByteArray(), Charsets.UTF_8))
+                processAgentData(String(bytes.toByteArray(), Charsets.UTF_8))
                 return
             }
 
-            var cmd : Int = (msg[0].toInt() shl 8) + msg[1].toInt()
-            //println("Cmd $cmd, Size: ${msg.size}")
+            var cmd : Int = (bytes[0].toInt() shl 8) + bytes[1].toInt()
+            //println("Cmd $cmd, Size: ${bytes.size}")
             when (cmd) {
                 1 -> {
                     // Server authentication request
-                    if (msg.size != 98) return;
-                    var serverCertHash = msg.substring(2, 50).toByteArray()
+                    if (bytes.size != 98) return;
+                    var serverCertHash = bytes.substring(2, 50).toByteArray()
                     if (!serverCertHash.contentEquals(serverTlsCertHash!!)) {
                         println("Server Hash Mismatch, given=${serverCertHash.toHex()}, computed=${serverTlsCertHash?.toHex()}")
                         stopSocket()
                         return
                     }
-                    serverNonce = msg.substring(50).toByteArray()
+                    serverNonce = bytes.substring(50).toByteArray()
 
                     // Hash the server cert hash, server nonce and client nonce and sign the result
                     val sig = Signature.getInstance("SHA384withRSA")
                     sig.initSign(agentCertificateKey)
-                    sig.update(msg.substring(2).toByteArray().plus(nonce!!))
+                    sig.update(bytes.substring(2).toByteArray().plus(nonce!!))
                     val signature = sig.sign()
 
                     // Construct the response [2, sideOfCert, Cert, Signature]
@@ -210,8 +211,8 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                 }
                 2 -> {
                     // Server agent certificate
-                    var xcertLen: Int = (msg[2].toUByte().toInt() shl 8) + msg[3].toUByte().toInt()
-                    var xcertBytes = msg.substring(4, 4 + xcertLen)
+                    var xcertLen: Int = (bytes[2].toUByte().toInt() shl 8) + bytes[3].toUByte().toInt()
+                    var xcertBytes = bytes.substring(4, 4 + xcertLen)
                     var xagentCertificate = CertificateFactory.getInstance("X509").generateCertificate(
                             ByteArrayInputStream(xcertBytes.toByteArray())
                     ) as X509Certificate
@@ -232,7 +233,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     val sig = Signature.getInstance("SHA384withRSA")
                     sig.initVerify(xagentCertificate)
                     sig.update(signBlock)
-                    if (!sig.verify(msg.substring(4 + xcertLen).toByteArray())) {
+                    if (!sig.verify(bytes.substring(4 + xcertLen).toByteArray())) {
                         println("Invalid Server Signature"); stopSocket(); return
                     }
 
@@ -642,7 +643,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                 } else {
                     x.put("status", "down")
                 }
-                if (j.address.hostAddress.indexOf(':') >= 0) {
+                if (j.address.hostAddress?.indexOf(':') ?: -1 >= 0) {
                     x.put("family", "IPv6")
                 } else {
                     x.put("family", "IPv4")
@@ -911,6 +912,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     } catch (e: Exception) {
                     }
                     if ((t > 0) && (t <= 10000)) {
+                        @Suppress("DEPRECATION")
                         val v = parent.applicationContext
                                 .getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
                         if (v == null) {

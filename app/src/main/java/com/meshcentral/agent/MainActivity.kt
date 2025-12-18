@@ -2,7 +2,6 @@ package com.meshcentral.agent
 
 //import com.google.firebase.iid.FirebaseInstanceId
 import android.Manifest
-import android.app.Activity
 import android.app.AlertDialog
 import android.app.Notification
 import android.app.NotificationChannel
@@ -28,6 +27,9 @@ import android.view.Menu
 import android.view.MenuItem
 import android.widget.EditText
 import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -77,7 +79,6 @@ var agentCertificate : X509Certificate? = null
 var agentCertificateKey : PrivateKey? = null
 var pageUrl : String? = null
 var cameraPresent : Boolean = false
-var pendingActivities : ArrayList<PendingActivityData> = ArrayList<PendingActivityData>()
 var pushMessagingToken : String? = null
 var g_autoConnect : Boolean = true
 var g_autoConsent : Boolean = false
@@ -99,6 +100,58 @@ class MainActivity : AppCompatActivity() {
     lateinit var notificationChannel: NotificationChannel
     lateinit var notificationManager: NotificationManager
     lateinit var builder: Notification.Builder
+
+    // Activity Result Launcher for screen capture (replaces deprecated startActivityForResult)
+    private val screenCaptureLauncher: ActivityResultLauncher<Intent> =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            println("screenCaptureLauncher, resultCode: ${result.resultCode}, data: ${result.data}")
+            if (result.resultCode == RESULT_OK) {
+                startService(ScreenCaptureService.getStartIntent(this, result.resultCode, result.data))
+                if (meshAgent?.tunnels?.getOrNull(0) != null) {
+                    val json = JSONObject()
+                    json.put("type", "console")
+                    json.put("msg", null)
+                    json.put("msgid", 0)
+                    meshAgent!!.tunnels[0].sendCtrlResponse(json)
+                }
+            } else {
+                if (meshAgent?.tunnels?.getOrNull(0) != null) {
+                    val json = JSONObject()
+                    json.put("type", "console")
+                    json.put("msg", "denied")
+                    json.put("msgid", 2)
+                    meshAgent!!.tunnels[0].sendCtrlResponse(json)
+                    meshAgent!!.tunnels[0].Stop()
+                }
+            }
+        }
+
+    // Pending activity data for intent sender results (file deletion permission)
+    private var pendingIntentSenderData: PendingActivityData? = null
+
+    // Activity Result Launcher for intent sender (replaces deprecated startIntentSenderForResult)
+    private val intentSenderLauncher: ActivityResultLauncher<IntentSenderRequest> =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            println("intentSenderLauncher, resultCode: ${result.resultCode}")
+            val pad = pendingIntentSenderData
+            if (pad != null) {
+                if (result.resultCode == RESULT_OK) {
+                    println("Approved: ${pad.url}, ${pad.where}, ${pad.args}")
+                    pad.tunnel.deleteFileEx(pad)
+                } else {
+                    println("Denied: ${pad.url}, ${pad.where}, ${pad.args}")
+                    pad.tunnel.deleteFileEx(pad)
+                }
+                pendingIntentSenderData = null
+            }
+        }
+
+    // Launch intent sender for file deletion permission (called from MeshTunnel)
+    fun launchIntentSenderForResult(intentSender: android.content.IntentSender, pad: PendingActivityData) {
+        pendingIntentSenderData = pad
+        val request = IntentSenderRequest.Builder(intentSender).build()
+        intentSenderLauncher.launch(request)
+    }
 
     init {
         Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME)
@@ -292,49 +345,6 @@ class MainActivity : AppCompatActivity() {
             alert = null
         }
         super.onDestroy()
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        println("onActivityResult, requestCode: $requestCode, resultCode: $resultCode, data: ${data.toString()}")
-        super.onActivityResult(requestCode, resultCode, data)
-
-        if (requestCode == MainActivity.Companion.REQUEST_CODE) {
-            if (resultCode == RESULT_OK) {
-                startService(com.meshcentral.agent.ScreenCaptureService.getStartIntent(this, resultCode, data))
-                if (meshAgent?.tunnels?.getOrNull(0) != null) {
-                    val json = JSONObject()
-                    json.put("type", "console")
-                    json.put("msg", null)
-                    json.put("msgid", 0)
-                    meshAgent!!.tunnels[0].sendCtrlResponse(json)
-                }
-                return
-            } else {
-                if (meshAgent?.tunnels?.getOrNull(0) != null) {
-                    val json = JSONObject()
-                    json.put("type", "console")
-                    json.put("msg", "denied")
-                    json.put("msgid", 2)
-                    meshAgent!!.tunnels[0].sendCtrlResponse(json)
-                    meshAgent!!.tunnels[0].Stop()
-                }
-                return
-            }
-        }
-
-        var pad : PendingActivityData? = null
-        for (b in pendingActivities) { if (b.id == requestCode) { pad = b } }
-
-        if (pad != null) {
-            if (resultCode == Activity.RESULT_OK) {
-                println("Approved: ${pad.url}, ${pad.where}, ${pad.args}")
-                pad.tunnel.deleteFileEx(pad)
-            } else {
-                println("Denied: ${pad.url}, ${pad.where}, ${pad.args}")
-                pad.tunnel.deleteFileEx(pad)
-            }
-            pendingActivities.remove(pad)
-        }
     }
 
     fun setMeshServerLink(x: String?) {
@@ -668,7 +678,7 @@ class MainActivity : AppCompatActivity() {
     fun startProjection() {
         if ((g_ScreenCaptureService != null) || (meshAgent == null) || (meshAgent!!.state != 3)) return
         val mProjectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        startActivityForResult(mProjectionManager.createScreenCaptureIntent(), MainActivity.Companion.REQUEST_CODE)
+        screenCaptureLauncher.launch(mProjectionManager.createScreenCaptureIntent())
     }
 
     // Stop screen sharing
@@ -735,7 +745,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
-        private const val REQUEST_CODE = 100
         const val REQUEST_ALL_PERMISSIONS = 1
     }
 }

@@ -103,8 +103,8 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
             }
 
             override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                val hash =
-                        MessageDigest.getInstance("SHA-384").digest(chain?.get(0)?.encoded).toHex()
+                val encoded = chain?.get(0)?.encoded ?: throw CertificateException("No certificate")
+                val hash = MessageDigest.getInstance("SHA-384").digest(encoded).toHex()
                 if ((serverTlsCertHash != null) && (hash == serverTlsCertHash?.toHex())) return
                 if (hash == parent.serverTlsCertHash?.toHex()) return
                 println("Got Bad Tunnel TlsHash: $hash")
@@ -253,19 +253,19 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
         }
     }
 
-    override fun onMessage(webSocket: WebSocket, msg: ByteString) {
-        //println("Tunnel-onBinaryMessage: ${msg.size}, ${msg.toByteArray().toHex()}")
-        if ((state != 2) || (msg.size < 2)) return;
+    override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+        //println("Tunnel-onBinaryMessage: ${bytes.size}, ${bytes.toByteArray().toHex()}")
+        if ((state != 2) || (bytes.size < 2)) return;
         try {
-            if (msg[0].toInt() == 123) {
+            if (bytes[0].toInt() == 123) {
                 // If we are authenticated, process JSON data
-                processTunnelData(String(msg.toByteArray(), Charsets.UTF_8))
+                processTunnelData(String(bytes.toByteArray(), Charsets.UTF_8))
             } else if (fileUpload != null) {
                 // If this is file upload data, process it here
-                if (msg[0].toInt() == 0) {
+                if (bytes[0].toInt() == 0) {
                     // If data starts with zero, skip the first byte. This is used to escape binary file data from JSON.
-                    fileUploadSize += (msg.size - 1);
-                    val buf = msg.toByteArray()
+                    fileUploadSize += (bytes.size - 1);
+                    val buf = bytes.toByteArray()
                     try {
                         fileUpload?.write(buf, 1, buf.size - 1)
                     } catch (_ : Exception) {
@@ -275,9 +275,9 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                     }
                 } else {
                     // If data does not start with zero, save as-is.
-                    fileUploadSize += msg.size;
+                    fileUploadSize += bytes.size;
                     try {
-                        fileUpload?.write(msg.toByteArray())
+                        fileUpload?.write(bytes.toByteArray())
                     } catch (_ : Exception) {
                         // Report a problem
                         uploadError()
@@ -291,12 +291,12 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 json.put("reqid", fileUploadReqId)
                 if (_webSocket != null) { _webSocket?.send(json.toString().toByteArray().toByteString()) }
             } else {
-                if (msg.size < 2) return
-                val cmd : Int = (msg[0].toInt() shl 8) + msg[1].toInt()
-                val cmdsize : Int = (msg[2].toInt() shl 8) + msg[3].toInt()
-                if (cmdsize != msg.size) return
-                //println("Cmd $cmd, Size: ${msg.size}, Hex: ${msg.toByteArray().toHex()}")
-                if (usage == 2) processBinaryDesktopCmd(cmd, cmdsize, msg) // Remote desktop
+                if (bytes.size < 2) return
+                val cmd : Int = (bytes[0].toInt() shl 8) + bytes[1].toInt()
+                val cmdsize : Int = (bytes[2].toInt() shl 8) + bytes[3].toInt()
+                if (cmdsize != bytes.size) return
+                //println("Cmd $cmd, Size: ${bytes.size}, Hex: ${bytes.toByteArray().toHex()}")
+                if (usage == 2) processBinaryDesktopCmd(cmd, cmdsize, bytes) // Remote desktop
             }
         }
         catch (e: Exception) {
@@ -541,7 +541,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
         if (uri == null) { return r }
         if (dir.startsWith("Sdcard")) {
             val path = dir.replaceFirst("Sdcard", Environment.getExternalStorageDirectory().absolutePath)
-            val listOfFiles = File(path).listFiles()
+            val listOfFiles = File(path).listFiles() ?: emptyArray()
             for (file in listOfFiles) {
                 val f = JSONObject()
                 f.put("n", file.name)
@@ -650,22 +650,13 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                                 securityException as? RecoverableSecurityException
                                     ?: throw securityException
 
-                            // Save the activity
+                            // Create pending activity data
                             val activityCode = Random.nextInt() and 0xFFFF
                             val pad = PendingActivityData(this, activityCode, fileUriArray[0], "${MediaStore.Images.Media._ID} = ?", fileidArray[0], req)
-                            pendingActivities.add(pad)
 
-                            // Launch the activity
+                            // Launch the activity using the modern Activity Result API
                             val intentSender = recoverableSecurityException.userAction.actionIntent.intentSender
-                            parent.parent.startIntentSenderForResult(
-                                intentSender,
-                                activityCode,
-                                null,
-                                0,
-                                0,
-                                0,
-                                null
-                            )
+                            parent.parent.launchIntentSenderForResult(intentSender, pad)
                         } else {
                             fileDeleteResponse(req, false) // Send fail
                         }

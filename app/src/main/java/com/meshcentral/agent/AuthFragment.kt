@@ -14,7 +14,7 @@ import androidx.navigation.fragment.findNavController
 import java.lang.Exception
 
 class AuthFragment : Fragment() {
-    var countDownTimer : CountDownTimer? = null
+    private lateinit var countDownTimer : CountDownTimer
 
     override fun onCreate(savedInstanceState: Bundle?) {
         println("onCreate-auth")
@@ -37,25 +37,24 @@ class AuthFragment : Fragment() {
         visibleScreen = 4
 
         // Set authentication code
-        val t:TextView = view.findViewById(R.id.authTopText2)
-        t.text = getString(R.string.zero_string)
+        val t:TextView? = view.findViewById(R.id.authTopText2)
+        t?.text = getString(R.string.zero_string)
         if (g_auth_url != null) {
             val authCode: String? = g_auth_url?.getQueryParameter("code")
             if (authCode != null) {
-                t.text = String(Base64.decode(authCode, Base64.DEFAULT), charset("UTF-8"))
+                t?.text = String(Base64.decode(authCode, Base64.DEFAULT), charset("UTF-8"))
             }
         }
 
         // Set authentication progress bar
-        val p:ProgressBar = view.findViewById(R.id.authProgressBar)
-        p.progress = 100
+        val p:ProgressBar? = view.findViewById(R.id.authProgressBar)
+        p?.progress = 100
         countDownTimer = object : CountDownTimer(60000, 600) {
             override fun onTick(millisUntilFinished: Long) {
-                val p:ProgressBar = view.findViewById(R.id.authProgressBar)
-                if (p.progress > 0) { p.progress -= 1 }
+                val p:ProgressBar? = view.findViewById(R.id.authProgressBar)
+                if (p?.progress!! > 0) { p.progress -= 1 }
             }
             override fun onFinish() {
-                countDownTimer = null
                 exit()
             }
         }.start()
@@ -74,9 +73,8 @@ class AuthFragment : Fragment() {
     }
 
     fun exit() {
-        if (countDownTimer != null) {
-            countDownTimer?.cancel()
-            countDownTimer = null
+        if (this::countDownTimer.isInitialized) {
+            countDownTimer.cancel()
         }
         try {
             findNavController().navigate(R.id.action_authFragment_to_FirstFragment)
