@@ -422,6 +422,9 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
         val offset = 4
         if (data.size <= offset + 4) return
         val locked = (data[offset + 4].toInt() and 0xFF) != 0
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "remote input lock changed: locked=$locked")
+        }
         MeshInputAccessibilityService.instance?.setRemoteInputLocked(locked)
     }
 

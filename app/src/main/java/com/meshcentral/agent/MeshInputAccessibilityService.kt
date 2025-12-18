@@ -1,7 +1,9 @@
 package com.meshcentral.agent
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.app.UiAutomation
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import android.view.InputDevice
@@ -9,6 +11,7 @@ import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.accessibility.AccessibilityEvent
+import android.graphics.Path
 import java.lang.reflect.Method
 
 class MeshInputAccessibilityService : AccessibilityService() {
@@ -20,6 +23,26 @@ class MeshInputAccessibilityService : AccessibilityService() {
             AccessibilityService::class.java.getDeclaredMethod("getUiAutomation")
         }.getOrNull()
     }
+
+    private val gesturePath = Path()
+    private var gestureStroke: GestureDescription.StrokeDescription? = null
+    private var lastGestureStartTime: Long = 0
+    private val gestureCallback = object : GestureResultCallback() {
+        override fun onCompleted(gestureDescription: GestureDescription?) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "dispatchGesture completed")
+            }
+        }
+
+        override fun onCancelled(gestureDescription: GestureDescription?) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "dispatchGesture cancelled")
+            }
+        }
+    }
+
+    private val gesturesSupported: Boolean
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
 
     private val pointerProperties = MotionEvent.PointerProperties().apply {
         id = 0
@@ -56,6 +79,30 @@ class MeshInputAccessibilityService : AccessibilityService() {
         remoteInputLocked = locked
     }
 
+    @Suppress("NewApi")
+    private fun sendKeyViaInputConnection(keyEvent: KeyEvent): Boolean {
+        if (Build.VERSION.SDK_INT < 34) {
+            return false
+        }
+        return try {
+            val inputMethod = getInputMethod()
+            val connection = inputMethod?.currentInputConnection
+            if (connection == null) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(logTag, "sendKeyViaInputConnection failed (no connection)")
+                }
+                return false
+            }
+            connection.sendKeyEvent(keyEvent)
+            true
+        } catch (ex: Exception) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "sendKeyViaInputConnection exception=${ex.message}")
+            }
+            false
+        }
+    }
+
     fun injectKey(keyCode: Int, action: Int, metaState: Int = 0) {
         if (remoteInputLocked) {
             if (BuildConfig.DEBUG) {
@@ -64,13 +111,6 @@ class MeshInputAccessibilityService : AccessibilityService() {
             return
         }
         val eventTime = SystemClock.uptimeMillis()
-        val automation = getUiAutomation()
-        if (automation == null) {
-            if (BuildConfig.DEBUG) {
-                Log.d(logTag, "injectKey failed to get UiAutomation keyCode=${KeyEvent.keyCodeToString(keyCode)} action=$action")
-            }
-            return
-        }
         val keyEvent = KeyEvent(
             eventTime,
             eventTime,
@@ -83,21 +123,47 @@ class MeshInputAccessibilityService : AccessibilityService() {
             KeyEvent.FLAG_FROM_SYSTEM,
             InputDevice.SOURCE_KEYBOARD
         )
-        if (automation == null) {
-            if (BuildConfig.DEBUG) {
-                Log.d(logTag, "injectKey failed to get UiAutomation keyCode=$keyCode action=$action")
-            }
-            return
-        }
         if (BuildConfig.DEBUG) {
             val unicodeChar = keyEvent.unicodeChar
             val charPart = if (unicodeChar != 0) " ('${unicodeChar.toChar()}')" else ""
             Log.d(logTag, "injectKey keyCode=${KeyEvent.keyCodeToString(keyCode)}($keyCode)$charPart action=$action meta=$metaState")
         }
-        automation.injectInputEvent(keyEvent, false)
+        val connectionSuccess = sendKeyViaInputConnection(keyEvent)
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "injectKey InputConnection result=$connectionSuccess keyCode=${KeyEvent.keyCodeToString(keyCode)}($keyCode) action=$action")
+        }
+        if (connectionSuccess) return
+        val automation = getUiAutomation()
+        if (automation == null) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "injectKey fallback failed to get UiAutomation keyCode=${KeyEvent.keyCodeToString(keyCode)} action=$action")
+            }
+            return
+        }
+        val success = automation.injectInputEvent(keyEvent, false)
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "injectKey UiAutomation result=$success keyCode=${KeyEvent.keyCodeToString(keyCode)}($keyCode) action=$action")
+        }
     }
 
     fun injectMouseMove(x: Int, y: Int) {
+        if (remoteInputLocked) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "injectMouseMove suppressed (remote input locked) x=$x y=$y")
+            }
+            return
+        }
+        if (gesturesSupported) {
+            if (pointerDown) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(logTag, "injectMouseMove (gesture) x=$x y=$y")
+                }
+                continueStroke(x, y)
+            } else if (BuildConfig.DEBUG) {
+                Log.d(logTag, "injectMouseMove ignored (no button down) x=$x y=$y")
+            }
+            return
+        }
         dispatchMotionEvent(if (pointerDown) MotionEvent.ACTION_MOVE else MotionEvent.ACTION_HOVER_MOVE, x, y)
     }
 
@@ -109,10 +175,19 @@ class MeshInputAccessibilityService : AccessibilityService() {
             return
         }
         pointerDown = true
+        if (gesturesSupported) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "injectMouseDown (gesture) x=$x y=$y")
+            }
+            startStroke(x, y)
+            continueStroke(x, y)
+            return
+        }
         if (BuildConfig.DEBUG) {
             Log.d(logTag, "injectMouseDown x=$x y=$y")
         }
         dispatchMotionEvent(MotionEvent.ACTION_DOWN, x, y)
+        pointerDownTime = SystemClock.uptimeMillis()
     }
 
     fun injectMouseUp(x: Int, y: Int) {
@@ -120,6 +195,14 @@ class MeshInputAccessibilityService : AccessibilityService() {
             if (BuildConfig.DEBUG) {
                 Log.d(logTag, "injectMouseUp suppressed (remote input locked) x=$x y=$y")
             }
+            return
+        }
+        if (gesturesSupported) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "injectMouseUp (gesture) x=$x y=$y")
+            }
+            endStroke(x, y)
+            pointerDown = false
             return
         }
         if (BuildConfig.DEBUG) {
@@ -147,7 +230,80 @@ class MeshInputAccessibilityService : AccessibilityService() {
     }
 
     fun injectMouseScroll(x: Int, y: Int, scrollDelta: Int) {
+        if (remoteInputLocked) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "injectMouseScroll suppressed (remote input locked) x=$x y=$y delta=$scrollDelta")
+            }
+            return
+        }
+        if (gesturesSupported) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "injectMouseScroll (gesture) x=$x y=$y delta=$scrollDelta")
+            }
+            performScrollGesture(x, y, scrollDelta)
+            return
+        }
         dispatchMotionEvent(MotionEvent.ACTION_SCROLL, x, y, scrollY = scrollDelta.toFloat())
+    }
+
+    private fun startStroke(x: Int, y: Int) {
+        gesturePath.reset()
+        gesturePath.moveTo(x.toFloat(), y.toFloat())
+        lastGestureStartTime = SystemClock.elapsedRealtime()
+        gestureStroke = null
+    }
+
+    private fun continueStroke(x: Int, y: Int) {
+        gesturePath.lineTo(x.toFloat(), y.toFloat())
+        var duration = SystemClock.elapsedRealtime() - lastGestureStartTime
+        if (duration <= 0) duration = 1
+        gestureStroke = if (gestureStroke == null) {
+            GestureDescription.StrokeDescription(gesturePath, 0, duration, true)
+        } else {
+            gestureStroke?.continueStroke(gesturePath, 0, duration, true)
+        }
+        gestureStroke?.let { dispatchGestureStroke(it) }
+        lastGestureStartTime = SystemClock.elapsedRealtime()
+        gesturePath.reset()
+        gesturePath.moveTo(x.toFloat(), y.toFloat())
+    }
+
+    private fun endStroke(x: Int, y: Int) {
+        gesturePath.lineTo(x.toFloat(), y.toFloat())
+        var duration = SystemClock.elapsedRealtime() - lastGestureStartTime
+        if (duration <= 0) duration = 1
+        gestureStroke = if (gestureStroke == null) {
+            GestureDescription.StrokeDescription(gesturePath, 0, duration, false)
+        } else {
+            gestureStroke?.continueStroke(gesturePath, 0, duration, false)
+        }
+        gestureStroke?.let { dispatchGestureStroke(it) }
+        gestureStroke = null
+        gesturePath.reset()
+    }
+
+    private fun dispatchGestureStroke(stroke: GestureDescription.StrokeDescription) {
+        val builder = GestureDescription.Builder()
+        builder.addStroke(stroke)
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "dispatchGesture stroke duration=${stroke.duration}")
+        }
+        dispatchGesture(builder.build(), gestureCallback, null)
+    }
+
+    private fun performScrollGesture(x: Int, y: Int, scrollDelta: Int) {
+        if (scrollDelta == 0) return
+        val displayMetrics = resources.displayMetrics
+        val height = displayMetrics.heightPixels.toFloat()
+        val startY = y.toFloat().coerceIn(0f, height)
+        val endY = (startY - scrollDelta).coerceIn(0f, height)
+        val path = Path().apply {
+            moveTo(x.toFloat(), startY)
+            lineTo(x.toFloat(), endY)
+        }
+        val duration = 200L
+        val stroke = GestureDescription.StrokeDescription(path, 0, duration)
+        dispatchGestureStroke(stroke)
     }
 
     private fun dispatchMotionEvent(
