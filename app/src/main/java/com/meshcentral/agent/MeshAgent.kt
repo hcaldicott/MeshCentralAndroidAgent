@@ -912,6 +912,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     } catch (e: Exception) {
                     }
                     if ((t > 0) && (t <= 10000)) {
+                        @Suppress("DEPRECATION")
                         val v = parent.applicationContext
                                 .getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
                         if (v == null) {
