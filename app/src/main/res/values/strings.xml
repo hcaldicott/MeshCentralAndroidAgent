@@ -64,4 +64,5 @@
     <string name="server_pairing_link">Server Pairing Link</string>
     <string name="invalid_server_pairing_link">Invalid Server Pairing Link</string>
     <string name="zero_string" translatable="false">000000</string>
+    <string name="mesh_input_accessibility_service_description">Allow remote control input to emulate keyboard and pointer actions.</string>
 </resources>

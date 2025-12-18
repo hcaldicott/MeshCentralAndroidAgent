@@ -11,6 +11,7 @@ import android.os.CountDownTimer
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Base64
+import android.view.KeyEvent
 import okhttp3.*
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
@@ -306,12 +307,8 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
 
     private fun processBinaryDesktopCmd(cmd : Int, cmdsize: Int, msg: ByteString) {
         when (cmd) {
-            1 -> { // Legacy key input
-                // Nop
-            }
-            2 -> { // Mouse input
-                // Nop
-            }
+            1 -> handleLegacyKeyboardInput(msg)
+            2 -> handleMouseInput(msg)
             5 -> { // Remote Desktop Settings
                 if (cmdsize < 6) return
                 g_desktop_imageType = msg[4].toInt() // 1 = JPEG, 2 = PNG, 3 = TIFF, 4 = WebP. TIFF is not support on Android.
@@ -328,15 +325,146 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
             8 -> { // Pause
                 // Nop
             }
-            85 -> { // Unicode key input
-                // Nop
-            }
-            87 -> { // Input Lock
-                // Nop
-            }
+            85 -> handleUnicodeKeyboardInput(msg)
+            87 -> handleRemoteInputLock(msg)
             else -> {
                 println("Unknown desktop binary command: $cmd, Size: ${msg.size}, Hex: ${msg.toByteArray().toHex()}")
             }
+        }
+    }
+
+    private fun handleLegacyKeyboardInput(msg: ByteString) {
+        val data = msg.toByteArray()
+        val offset = 4
+        if (data.size < offset + 6) return
+        val actionFlag = data[offset + 4].toInt() and 0xFF
+        val remoteCode = data[offset + 5].toInt() and 0xFF
+        val action = when (actionFlag) {
+            0, 3 -> KeyEvent.ACTION_DOWN
+            1, 4 -> KeyEvent.ACTION_UP
+            else -> return
+        }
+        mapRemoteKeyCode(remoteCode)?.let { (keyCode, meta) ->
+            MeshInputAccessibilityService.instance?.injectKey(keyCode, action, meta)
+        }
+    }
+
+    private fun handleUnicodeKeyboardInput(msg: ByteString) {
+        val data = msg.toByteArray()
+        val offset = 4
+        if (data.size < offset + 7) return
+        val actionFlag = data[offset + 4].toInt() and 0xFF
+        val charCode = ((data[offset + 5].toInt() and 0xFF) shl 8) or (data[offset + 6].toInt() and 0xFF)
+        val action = if (actionFlag == 0) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
+        mapUnicodeChar(charCode)?.let { (keyCode, meta) ->
+            MeshInputAccessibilityService.instance?.injectKey(keyCode, action, meta)
+        }
+    }
+
+    private fun handleRemoteInputLock(msg: ByteString) {
+        val data = msg.toByteArray()
+        val offset = 4
+        if (data.size <= offset + 4) return
+        val locked = (data[offset + 4].toInt() and 0xFF) != 0
+        MeshInputAccessibilityService.instance?.setRemoteInputLocked(locked)
+    }
+
+    private fun handleMouseInput(msg: ByteString) {
+        val data = msg.toByteArray()
+        val offset = 4
+        if (data.size < offset + 10) return
+        val button = data[offset + 5].toInt() and 0xFF
+        val x = ((data[offset + 6].toInt() and 0xFF) shl 8) or (data[offset + 7].toInt() and 0xFF)
+        val y = ((data[offset + 8].toInt() and 0xFF) shl 8) or (data[offset + 9].toInt() and 0xFF)
+        val imageType = data[offset + 3].toInt() and 0xFF
+        if ((imageType == 12) && (data.size >= offset + 12)) {
+            val delta = decodeScrollDelta(data[offset + 10].toInt(), data[offset + 11].toInt())
+            MeshInputAccessibilityService.instance?.injectMouseScroll(x, y, delta)
+            return
+        }
+        when (button) {
+            0 -> MeshInputAccessibilityService.instance?.injectMouseMove(x, y)
+            2, 8, 32 -> MeshInputAccessibilityService.instance?.injectMouseDown(x, y)
+            4, 16, 64 -> MeshInputAccessibilityService.instance?.injectMouseUp(x, y)
+            136 -> MeshInputAccessibilityService.instance?.injectMouseDoubleClick(x, y)
+            else -> MeshInputAccessibilityService.instance?.injectMouseMove(x, y)
+        }
+    }
+
+    private fun decodeScrollDelta(high: Int, low: Int): Int {
+        val value = ((high and 0xFF) shl 8) or (low and 0xFF)
+        return if (value >= 0x8000) value - 0xFFFF else value
+    }
+
+    private fun mapRemoteKeyCode(remoteCode: Int): Pair<Int, Int>? {
+        return when (remoteCode) {
+            in 65..90 -> Pair(KeyEvent.KEYCODE_A + (remoteCode - 65), 0)
+            in 48..57 -> Pair(KeyEvent.KEYCODE_0 + (remoteCode - 48), 0)
+            in 96..105 -> Pair(KeyEvent.KEYCODE_NUMPAD_0 + (remoteCode - 96), 0)
+            in 112..123 -> Pair(KeyEvent.KEYCODE_F1 + (remoteCode - 112), 0)
+            8 -> Pair(KeyEvent.KEYCODE_DEL, 0)
+            9 -> Pair(KeyEvent.KEYCODE_TAB, 0)
+            13 -> Pair(KeyEvent.KEYCODE_ENTER, 0)
+            16 -> Pair(KeyEvent.KEYCODE_SHIFT_LEFT, 0)
+            17 -> Pair(KeyEvent.KEYCODE_CTRL_LEFT, 0)
+            18 -> Pair(KeyEvent.KEYCODE_ALT_LEFT, 0)
+            20 -> Pair(KeyEvent.KEYCODE_CAPS_LOCK, 0)
+            27 -> Pair(KeyEvent.KEYCODE_ESCAPE, 0)
+            32 -> Pair(KeyEvent.KEYCODE_SPACE, 0)
+            35 -> Pair(KeyEvent.KEYCODE_MOVE_END, 0)
+            36 -> Pair(KeyEvent.KEYCODE_MOVE_HOME, 0)
+            45 -> Pair(KeyEvent.KEYCODE_INSERT, 0)
+            46 -> Pair(KeyEvent.KEYCODE_FORWARD_DEL, 0)
+            91 -> Pair(KeyEvent.KEYCODE_META_LEFT, 0)
+            92 -> Pair(KeyEvent.KEYCODE_META_RIGHT, 0)
+            93 -> Pair(KeyEvent.KEYCODE_MENU, 0)
+            144 -> Pair(KeyEvent.KEYCODE_NUM_LOCK, 0)
+            145 -> Pair(KeyEvent.KEYCODE_SCROLL_LOCK, 0)
+            186 -> Pair(KeyEvent.KEYCODE_SEMICOLON, 0)
+            187 -> Pair(KeyEvent.KEYCODE_EQUALS, 0)
+            188 -> Pair(KeyEvent.KEYCODE_COMMA, 0)
+            189 -> Pair(KeyEvent.KEYCODE_MINUS, 0)
+            190 -> Pair(KeyEvent.KEYCODE_PERIOD, 0)
+            191 -> Pair(KeyEvent.KEYCODE_SLASH, 0)
+            192 -> Pair(KeyEvent.KEYCODE_GRAVE, 0)
+            219 -> Pair(KeyEvent.KEYCODE_LEFT_BRACKET, 0)
+            220 -> Pair(KeyEvent.KEYCODE_BACKSLASH, 0)
+            221 -> Pair(KeyEvent.KEYCODE_RIGHT_BRACKET, 0)
+            222 -> Pair(KeyEvent.KEYCODE_APOSTROPHE, 0)
+            else -> null
+        }
+    }
+
+    private fun mapUnicodeChar(charCode: Int): Pair<Int, Int>? {
+        val char = charCode.toChar()
+        return when (char) {
+            in 'a'..'z' -> Pair(KeyEvent.KEYCODE_A + (char - 'a'), 0)
+            in 'A'..'Z' -> Pair(KeyEvent.KEYCODE_A + (char - 'A'), KeyEvent.META_SHIFT_ON)
+            in '0'..'9' -> Pair(KeyEvent.KEYCODE_0 + (char - '0'), 0)
+            ' ' -> Pair(KeyEvent.KEYCODE_SPACE, 0)
+            '\n', '\r' -> Pair(KeyEvent.KEYCODE_ENTER, 0)
+            '\t' -> Pair(KeyEvent.KEYCODE_TAB, 0)
+            ',' -> Pair(KeyEvent.KEYCODE_COMMA, 0)
+            '.' -> Pair(KeyEvent.KEYCODE_PERIOD, 0)
+            ';' -> Pair(KeyEvent.KEYCODE_SEMICOLON, 0)
+            ':' -> Pair(KeyEvent.KEYCODE_SEMICOLON, KeyEvent.META_SHIFT_ON)
+            '+' -> Pair(KeyEvent.KEYCODE_EQUALS, KeyEvent.META_SHIFT_ON)
+            '-' -> Pair(KeyEvent.KEYCODE_MINUS, 0)
+            '_' -> Pair(KeyEvent.KEYCODE_MINUS, KeyEvent.META_SHIFT_ON)
+            '=' -> Pair(KeyEvent.KEYCODE_EQUALS, 0)
+            '/' -> Pair(KeyEvent.KEYCODE_SLASH, 0)
+            '?' -> Pair(KeyEvent.KEYCODE_SLASH, KeyEvent.META_SHIFT_ON)
+            '@' -> Pair(KeyEvent.KEYCODE_2, KeyEvent.META_SHIFT_ON)
+            '#' -> Pair(KeyEvent.KEYCODE_3, KeyEvent.META_SHIFT_ON)
+            '$' -> Pair(KeyEvent.KEYCODE_4, KeyEvent.META_SHIFT_ON)
+            '%' -> Pair(KeyEvent.KEYCODE_5, KeyEvent.META_SHIFT_ON)
+            '^' -> Pair(KeyEvent.KEYCODE_6, KeyEvent.META_SHIFT_ON)
+            '&' -> Pair(KeyEvent.KEYCODE_7, KeyEvent.META_SHIFT_ON)
+            '*' -> Pair(KeyEvent.KEYCODE_8, KeyEvent.META_SHIFT_ON)
+            '(' -> Pair(KeyEvent.KEYCODE_9, KeyEvent.META_SHIFT_ON)
+            ')' -> Pair(KeyEvent.KEYCODE_0, KeyEvent.META_SHIFT_ON)
+            '!' -> Pair(KeyEvent.KEYCODE_1, KeyEvent.META_SHIFT_ON)
+            else -> null
         }
     }
 
