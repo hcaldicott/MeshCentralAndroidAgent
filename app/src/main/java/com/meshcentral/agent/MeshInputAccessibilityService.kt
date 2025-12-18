@@ -8,18 +8,28 @@ import android.content.res.Resources
 import android.graphics.Path
 import android.graphics.Point
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import android.view.Display
 import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import java.lang.reflect.Method
+import java.util.concurrent.ConcurrentHashMap
 
+/**
+ * Accessibility service that bridges remote desktop input with Android input APIs.
+ * It keeps a cursor overlay, handles coordinate scaling, and abstracts gesture vs. motion paths
+ * so mouse and keyboard events from the MeshCentral tunnel can be injected consistently.
+ */
 class MeshInputAccessibilityService : AccessibilityService() {
     private val logTag = "MeshInputAccessibilityService"
     companion object {
@@ -70,6 +80,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
     private var lastCursorUpdateTime = 0L
     private val CURSOR_UPDATE_INTERVAL = 16L // ~60fps max update rate
     private val cursorIdleRunnable = Runnable { snapCursorToLastPosition() }
+    private val keyboardFocusNodes = ConcurrentHashMap<Int, AccessibilityNodeInfo>()
 
     // Screen dimensions for coordinate scaling
     private var remoteScreenWidth = 0
@@ -84,6 +95,11 @@ class MeshInputAccessibilityService : AccessibilityService() {
         initCursorOverlay()
     }
 
+    /**
+     * Capture remote and actual screen dimensions to support coordinate scaling.
+     * Remote dimensions come from display metrics, actual dimensions include system bars
+     * through WindowManager APIs depending on Android release.
+     */
     private fun initScreenDimensions() {
         // Remote screen dimensions (what the capture reports to remote client)
         remoteScreenWidth = Resources.getSystem().displayMetrics.widthPixels
@@ -112,6 +128,11 @@ class MeshInputAccessibilityService : AccessibilityService() {
     // Two scalings are involved:
     // 1. Desktop scaling (g_desktop_scalingLevel): remote sends coords in scaled image space
     // 2. System bar scaling: displayMetrics vs actual full screen
+    /**
+     * Translate coordinates from the remote desktop into the device's native screen space.
+     * First undo the remote desktop scaling factor, then adjust for the difference between
+     * reported display metrics and the full screen size (status/navigation bars).
+     */
     private fun scaleCoordinates(x: Int, y: Int): Pair<Int, Int> {
         // First, reverse the desktop scaling (g_desktop_scalingLevel: 1024 = 100%, 512 = 50%)
         val desktopScaledX = if (g_desktop_scalingLevel != 1024) {
@@ -154,7 +175,10 @@ class MeshInputAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // No-op
+        val node = event?.source ?: return
+        val displayId = node.window?.displayId ?: Display.DEFAULT_DISPLAY
+        keyboardFocusNodes[displayId]?.recycle()
+        keyboardFocusNodes[displayId] = AccessibilityNodeInfo.obtain(node)
     }
 
     override fun onInterrupt() {
@@ -163,6 +187,8 @@ class MeshInputAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         instance = null
+        keyboardFocusNodes.values.forEach { it.recycle() }
+        keyboardFocusNodes.clear()
         mainHandler.post {
             cursorView?.removeFromWindow()
             cursorView = null
@@ -243,6 +269,10 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Dispatch a key through InputConnection/UiAutomation when available, otherwise fall back
+     * to AccessibilityNodeInfo traversal (API <34) so remote keyboards still work.
+     */
     fun injectKey(keyCode: Int, action: Int, metaState: Int = 0) {
         if (remoteInputLocked) {
             if (BuildConfig.DEBUG) {
@@ -273,6 +303,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
             Log.d(logTag, "injectKey InputConnection result=$connectionSuccess keyCode=${KeyEvent.keyCodeToString(keyCode)}($keyCode) action=$action")
         }
         if (connectionSuccess) return
+        if (tryAccessibilityFallback(keyCode, action)) return
         val automation = getUiAutomation()
         if (automation == null) {
             if (BuildConfig.DEBUG) {
@@ -511,5 +542,153 @@ class MeshInputAccessibilityService : AccessibilityService() {
         } catch (_: Exception) {
             null
         }
+    }
+
+    /**
+     * Attempt to synthesize DPAD/Tab navigation by acting on focus nodes for older APIs.
+     */
+    private fun tryAccessibilityFallback(keyCode: Int, action: Int): Boolean {
+        if (action != KeyEvent.ACTION_DOWN) return false
+        return when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT,
+            KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_DPAD_UP,
+            KeyEvent.KEYCODE_DPAD_DOWN -> handleDpadDirection(keyCode)
+            KeyEvent.KEYCODE_TAB -> handleTabKey()
+            else -> false
+        }
+    }
+
+    /**
+     * Navigate focus or perform global DPAD actions to mimic directional key presses.
+     */
+    private fun handleDpadDirection(keyCode: Int): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val action = when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> AccessibilityService.GLOBAL_ACTION_DPAD_LEFT
+                KeyEvent.KEYCODE_DPAD_RIGHT -> AccessibilityService.GLOBAL_ACTION_DPAD_RIGHT
+                KeyEvent.KEYCODE_DPAD_UP -> AccessibilityService.GLOBAL_ACTION_DPAD_UP
+                KeyEvent.KEYCODE_DPAD_DOWN -> AccessibilityService.GLOBAL_ACTION_DPAD_DOWN
+                else -> return false
+            }
+            return performGlobalAction(action)
+        }
+        val displayId = getDefaultDisplayId()
+        val focusNode = getOrFindFocusNode(displayId) ?: return false
+        val handled = if (focusNode.isEditable && tryTextTraversal(keyCode, focusNode)) {
+            true
+        } else {
+            handleFocusTraversal(keyCode, focusNode)
+        }
+        focusNode.recycle()
+        return handled
+    }
+
+    /**
+     * Try to move focus in the requested direction; fall back to searching for another focusable
+     * node from the root if needed.
+     */
+    private fun handleFocusTraversal(keyCode: Int, focusNode: AccessibilityNodeInfo): Boolean {
+        val direction = when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> View.FOCUS_LEFT
+            KeyEvent.KEYCODE_DPAD_RIGHT -> View.FOCUS_RIGHT
+            KeyEvent.KEYCODE_DPAD_UP -> View.FOCUS_UP
+            KeyEvent.KEYCODE_DPAD_DOWN -> View.FOCUS_DOWN
+            else -> return false
+        }
+        val nextFocus = focusNode.focusSearch(direction)
+        if (nextFocus != null) {
+            val changed = nextFocus.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            nextFocus.recycle()
+            return changed
+        }
+        val newFocus = findFocusableNodeFromRoot()
+        if (newFocus != null) {
+            val changed = newFocus.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            newFocus.recycle()
+            return changed
+        }
+        return false
+    }
+
+    /**
+     * Make fine-grained text navigation within editable nodes, mimicking typing cursor moves.
+     */
+    private fun tryTextTraversal(keyCode: Int, focusNode: AccessibilityNodeInfo): Boolean {
+        val actionId = if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+            AccessibilityNodeInfo.AccessibilityAction.ACTION_PREVIOUS_AT_MOVEMENT_GRANULARITY.id
+        } else {
+            AccessibilityNodeInfo.AccessibilityAction.ACTION_NEXT_AT_MOVEMENT_GRANULARITY.id
+        }
+        val granularity = if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            AccessibilityNodeInfo.MOVEMENT_GRANULARITY_CHARACTER
+        } else {
+            AccessibilityNodeInfo.MOVEMENT_GRANULARITY_LINE
+        }
+        val bundle = Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_MOVEMENT_GRANULARITY_INT, granularity)
+            putBoolean(AccessibilityNodeInfo.ACTION_ARGUMENT_EXTEND_SELECTION_BOOLEAN, false)
+        }
+        return focusNode.performAction(actionId, bundle)
+    }
+
+    /**
+     * Advance focus forward when Tab is pressed using AccessibilityNodeInfo traversal.
+     */
+    private fun handleTabKey(): Boolean {
+        val displayId = getDefaultDisplayId()
+        val focusNode = getOrFindFocusNode(displayId) ?: return false
+        val nextFocus = focusNode.focusSearch(View.FOCUS_FORWARD)
+        focusNode.recycle()
+        if (nextFocus != null) {
+            val changed = nextFocus.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            nextFocus.recycle()
+            return changed
+        }
+        return false
+    }
+
+    /**
+     * Return the cached focus node for the display or search the tree when none exists.
+     */
+    private fun getOrFindFocusNode(displayId: Int): AccessibilityNodeInfo? {
+        keyboardFocusNodes[displayId]?.let { return AccessibilityNodeInfo.obtain(it) }
+        val newNode = findFocusableNodeFromRoot()
+        if (newNode != null) {
+            keyboardFocusNodes[displayId]?.recycle()
+            keyboardFocusNodes[displayId] = AccessibilityNodeInfo.obtain(newNode)
+        }
+        return newNode
+    }
+
+    /**
+     * Walk the active window's tree looking for the first focusable node to resume navigation.
+     */
+    private fun findFocusableNodeFromRoot(): AccessibilityNodeInfo? {
+        val root = rootInActiveWindow ?: return null
+        val result = findFocusableNodeRecursive(root)
+        root.recycle()
+        return result
+    }
+
+    /**
+     * Depth-first search helper that returns the first focusable node encountered.
+     */
+    private fun findFocusableNodeRecursive(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        if (node.isFocusable) return AccessibilityNodeInfo.obtain(node)
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            val focusable = findFocusableNodeRecursive(child)
+            child?.recycle()
+            if (focusable != null) {
+                return focusable
+            }
+        }
+        return null
+    }
+
+    private fun getDefaultDisplayId(): Int {
+        return Display.DEFAULT_DISPLAY
     }
 }
