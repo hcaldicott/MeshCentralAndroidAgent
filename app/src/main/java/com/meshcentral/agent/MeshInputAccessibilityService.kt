@@ -643,7 +643,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
                 "End" -> existingText.length
                 else -> return@withFocusedEditableNode false
             }
-            setSelection(node, targetPosition, existingText.length)
+            setSelection(node, targetPosition)
             true
         }
     }
@@ -680,13 +680,14 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
         val result = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
         if (result) {
-            setSelection(node, cursorPos)
+            setSelection(node, cursorPos, newText.length)
         }
         return result
     }
 
-    private fun setSelection(node: AccessibilityNodeInfo, position: Int) {
-        val clamped = position.coerceIn(0, (node.text?.length ?: 0))
+    private fun setSelection(node: AccessibilityNodeInfo, position: Int, maxLength: Int? = null) {
+        val safeMax = maxLength ?: (node.text?.length ?: 0)
+        val clamped = position.coerceIn(0, safeMax)
         val args = Bundle().apply {
             putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, clamped)
             putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, clamped)
