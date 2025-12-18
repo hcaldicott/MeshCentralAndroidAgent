@@ -65,4 +65,8 @@
     <string name="invalid_server_pairing_link">Invalid Server Pairing Link</string>
     <string name="zero_string" translatable="false">000000</string>
     <string name="mesh_input_accessibility_service_description">Allow remote control input to emulate keyboard and pointer actions.</string>
+    <string name="enable_accessibility_service_title">Enable accessibility service</string>
+    <string name="enable_accessibility_service_message">MeshCentral Agent needs the accessibility service in order to inject keyboard and pointer input. Please enable it in Accessibility settings.</string>
+    <string name="enable_accessibility_service_settings_button">Open Accessibility settings</string>
+    <string name="remind_me_later">Remind me later</string>
 </resources>

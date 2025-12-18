@@ -1,3 +1,6 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+
 plugins {
     id 'com.android.application'
     id 'kotlin-android'
@@ -13,11 +16,14 @@ android {
         versionCode = 28
         versionName = "1.0.21"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField "String", "BUILD_TIMESTAMP", "\"\""
     }
 
     buildTypes {
         debug {
             debuggable = true
+            def debugTimestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date())
+            buildConfigField "String", "BUILD_TIMESTAMP", "\"${debugTimestamp}\""
         }
         release {
             // Enables code shrinking, obfuscation, and optimization for only

@@ -11,6 +11,7 @@ import android.os.CountDownTimer
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Base64
+import android.util.Log
 import android.view.KeyEvent
 import okhttp3.*
 import okio.ByteString
@@ -61,6 +62,8 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
     var sessionUserName2 : String? = null // UserID/GuestName
 
     init { }
+
+    private val logTag = "MeshTunnel"
 
     fun Start() {
         //println("MeshTunnel Init: ${serverData.toString()}")
@@ -306,6 +309,9 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
     }
 
     private fun processBinaryDesktopCmd(cmd : Int, cmdsize: Int, msg: ByteString) {
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "desktop cmd=$cmd size=$cmdsize")
+        }
         when (cmd) {
             1 -> handleLegacyKeyboardInput(msg)
             2 -> handleMouseInput(msg)
@@ -335,30 +341,66 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
 
     private fun handleLegacyKeyboardInput(msg: ByteString) {
         val data = msg.toByteArray()
-        val offset = 4
-        if (data.size < offset + 6) return
-        val actionFlag = data[offset + 4].toInt() and 0xFF
-        val remoteCode = data[offset + 5].toInt() and 0xFF
+        val payloadOffset = 4
+        if (data.size < payloadOffset + 2) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "legacy key data too short (${data.size}) hex=${data.toHex()}")
+            }
+            return
+        }
+        val actionFlag = data[payloadOffset].toInt() and 0xFF
+        val remoteCode = data[payloadOffset + 1].toInt() and 0xFF
         val action = when (actionFlag) {
             0, 3 -> KeyEvent.ACTION_DOWN
             1, 4 -> KeyEvent.ACTION_UP
             else -> return
         }
-        mapRemoteKeyCode(remoteCode)?.let { (keyCode, meta) ->
-            MeshInputAccessibilityService.instance?.injectKey(keyCode, action, meta)
+        val remoteChar = if (remoteCode in 32..126) " ('${remoteCode.toChar()}')" else ""
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "legacy key raw remote=$remoteCode$remoteChar actionFlag=$actionFlag action=$action")
         }
+        val mappedKey = mapRemoteKeyCode(remoteCode)
+        if (mappedKey == null) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "legacy key remote=$remoteCode unmapped action=$action")
+            }
+            return
+        }
+        val (keyCode, meta) = mappedKey
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "legacy key mapped keyCode=${KeyEvent.keyCodeToString(keyCode)}($keyCode) action=$action meta=$meta")
+        }
+        MeshInputAccessibilityService.instance?.injectKey(keyCode, action, meta)
     }
 
     private fun handleUnicodeKeyboardInput(msg: ByteString) {
         val data = msg.toByteArray()
-        val offset = 4
-        if (data.size < offset + 7) return
-        val actionFlag = data[offset + 4].toInt() and 0xFF
-        val charCode = ((data[offset + 5].toInt() and 0xFF) shl 8) or (data[offset + 6].toInt() and 0xFF)
-        val action = if (actionFlag == 0) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
-        mapUnicodeChar(charCode)?.let { (keyCode, meta) ->
-            MeshInputAccessibilityService.instance?.injectKey(keyCode, action, meta)
+        val payloadOffset = 4
+        if (data.size < payloadOffset + 3) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "unicode key data too short (${data.size}) hex=${data.toHex()}")
+            }
+            return
         }
+        val actionFlag = data[payloadOffset].toInt() and 0xFF
+        val charCode = ((data[payloadOffset + 1].toInt() and 0xFF) shl 8) or (data[payloadOffset + 2].toInt() and 0xFF)
+        val action = if (actionFlag == 0) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "unicode key raw charCode=$charCode actionFlag=$actionFlag action=$action")
+        }
+        val unicodeMapping = mapUnicodeChar(charCode)
+        if (unicodeMapping == null) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "unicode key char=$charCode unmapped action=$action")
+            }
+            return
+        }
+        val (keyCode, meta) = unicodeMapping
+        val unicodeChar = if (charCode in 32..0x10FFFF) " ('${charCode.toChar()}')" else ""
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "unicode key mapped keyCode=${KeyEvent.keyCodeToString(keyCode)}($keyCode)$unicodeChar action=$action meta=$meta")
+        }
+        MeshInputAccessibilityService.instance?.injectKey(keyCode, action, meta)
     }
 
     private fun handleRemoteInputLock(msg: ByteString) {
@@ -372,22 +414,55 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
     private fun handleMouseInput(msg: ByteString) {
         val data = msg.toByteArray()
         val offset = 4
-        if (data.size < offset + 10) return
-        val button = data[offset + 5].toInt() and 0xFF
-        val x = ((data[offset + 6].toInt() and 0xFF) shl 8) or (data[offset + 7].toInt() and 0xFF)
-        val y = ((data[offset + 8].toInt() and 0xFF) shl 8) or (data[offset + 9].toInt() and 0xFF)
-        val imageType = data[offset + 3].toInt() and 0xFF
-        if ((imageType == 12) && (data.size >= offset + 12)) {
-            val delta = decodeScrollDelta(data[offset + 10].toInt(), data[offset + 11].toInt())
+        val payloadLen = data.size - offset
+        if (payloadLen < 6) {
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "mouse data too short (${data.size}) hex=${data.toHex()}")
+            }
+            return
+        }
+        val button = data[offset + 1].toInt() and 0xFF
+        val x = ((data[offset + 2].toInt() and 0xFF) shl 8) or (data[offset + 3].toInt() and 0xFF)
+        val y = ((data[offset + 4].toInt() and 0xFF) shl 8) or (data[offset + 5].toInt() and 0xFF)
+        if (payloadLen >= 8) {
+            val delta = decodeScrollDelta(data[offset + 6].toInt(), data[offset + 7].toInt())
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "mouse scroll x=$x y=$y delta=$delta")
+            }
             MeshInputAccessibilityService.instance?.injectMouseScroll(x, y, delta)
             return
         }
         when (button) {
-            0 -> MeshInputAccessibilityService.instance?.injectMouseMove(x, y)
-            2, 8, 32 -> MeshInputAccessibilityService.instance?.injectMouseDown(x, y)
-            4, 16, 64 -> MeshInputAccessibilityService.instance?.injectMouseUp(x, y)
-            136 -> MeshInputAccessibilityService.instance?.injectMouseDoubleClick(x, y)
-            else -> MeshInputAccessibilityService.instance?.injectMouseMove(x, y)
+            0 -> {
+                if (BuildConfig.DEBUG) {
+                    Log.d(logTag, "mouse move x=$x y=$y")
+                }
+                MeshInputAccessibilityService.instance?.injectMouseMove(x, y)
+            }
+            2, 8, 32 -> {
+                if (BuildConfig.DEBUG) {
+                    Log.d(logTag, "mouse down x=$x y=$y button=$button")
+                }
+                MeshInputAccessibilityService.instance?.injectMouseDown(x, y)
+            }
+            4, 16, 64 -> {
+                if (BuildConfig.DEBUG) {
+                    Log.d(logTag, "mouse up x=$x y=$y button=$button")
+                }
+                MeshInputAccessibilityService.instance?.injectMouseUp(x, y)
+            }
+            136 -> {
+                if (BuildConfig.DEBUG) {
+                    Log.d(logTag, "mouse double click x=$x y=$y")
+                }
+                MeshInputAccessibilityService.instance?.injectMouseDoubleClick(x, y)
+            }
+            else -> {
+                if (BuildConfig.DEBUG) {
+                    Log.d(logTag, "mouse default move x=$x y=$y button=$button")
+                }
+                MeshInputAccessibilityService.instance?.injectMouseMove(x, y)
+            }
         }
     }
 

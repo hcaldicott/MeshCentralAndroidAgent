@@ -3,6 +3,7 @@ package com.meshcentral.agent
 import android.accessibilityservice.AccessibilityService
 import android.app.UiAutomation
 import android.os.SystemClock
+import android.util.Log
 import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
@@ -11,6 +12,7 @@ import android.view.accessibility.AccessibilityEvent
 import java.lang.reflect.Method
 
 class MeshInputAccessibilityService : AccessibilityService() {
+    private val logTag = "MeshInputAccessibilityService"
     companion object {
         @Volatile
         var instance: MeshInputAccessibilityService? = null
@@ -70,6 +72,11 @@ class MeshInputAccessibilityService : AccessibilityService() {
             KeyEvent.FLAG_FROM_SYSTEM,
             InputDevice.SOURCE_KEYBOARD
         )
+        if (BuildConfig.DEBUG) {
+            val unicodeChar = keyEvent.unicodeChar
+            val charPart = if (unicodeChar != 0) " ('${unicodeChar.toChar()}')" else ""
+            Log.d(logTag, "injectKey keyCode=${KeyEvent.keyCodeToString(keyCode)}($keyCode)$charPart action=$action meta=$metaState")
+        }
         automation.injectInputEvent(keyEvent, false)
     }
 
@@ -133,6 +140,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
             InputDevice.SOURCE_MOUSE,
             0
         )
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "dispatchMotionEvent action=$action x=$x y=$y scrollX=$scrollX scrollY=$scrollY")
+        }
         val automation = getUiAutomation() ?: return
         automation.injectInputEvent(event, false)
         event.recycle()

@@ -39,6 +39,7 @@ class MainFragment : Fragment(), MultiplePermissionsListener {
         visibleScreen = 1;
 
         refreshInfo()
+        updateBuildTimestampDisplay()
 
         view.findViewById<Button>(R.id.agentActionButton).setOnClickListener {
             var serverLink = serverLink;
@@ -308,6 +309,17 @@ class MainFragment : Fragment(), MultiplePermissionsListener {
             }
         }
         */
+        updateBuildTimestampDisplay()
+    }
+
+    private fun updateBuildTimestampDisplay() {
+        val timestampView = view?.findViewById<TextView>(R.id.buildTimestampTextView)
+        if (BuildConfig.DEBUG && BuildConfig.BUILD_TIMESTAMP.isNotBlank()) {
+            timestampView?.text = "Build: ${BuildConfig.BUILD_TIMESTAMP}"
+            timestampView?.visibility = View.VISIBLE
+        } else {
+            timestampView?.visibility = View.GONE
+        }
     }
 
     fun getServerHost(serverLink: String?) : String? {

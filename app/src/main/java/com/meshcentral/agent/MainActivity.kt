@@ -8,6 +8,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -97,6 +98,7 @@ var g_auth_url : Uri? = null
 
 class MainActivity : AppCompatActivity() {
     var alert : AlertDialog? = null
+    private var accessibilityPromptDialog: AlertDialog? = null
     lateinit var notificationChannel: NotificationChannel
     lateinit var notificationManager: NotificationManager
     lateinit var builder: Notification.Builder
@@ -235,6 +237,11 @@ class MainActivity : AppCompatActivity() {
         if (g_autoConnect && !g_userDisconnect && (meshAgent == null)) {
             toggleAgentConnection(false)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        showAccessibilityServicePromptIfNeeded()
     }
 
     private fun sendConsoleMessage(msg: String) {
@@ -742,6 +749,33 @@ class MainActivity : AppCompatActivity() {
                 g_retryTimer = null
             }
         }
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val enabledServices = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+        if (enabledServices.isNullOrEmpty()) return false
+        val expectedService = ComponentName(this, MeshInputAccessibilityService::class.java).flattenToString()
+        return enabledServices.split(':').any { it.equals(expectedService, ignoreCase = true) }
+    }
+
+    private fun showAccessibilityServicePromptIfNeeded() {
+        if (isAccessibilityServiceEnabled()) {
+            accessibilityPromptDialog?.dismiss()
+            accessibilityPromptDialog = null
+            return
+        }
+        if (accessibilityPromptDialog?.isShowing == true) return
+        accessibilityPromptDialog = AlertDialog.Builder(this)
+            .setTitle(R.string.enable_accessibility_service_title)
+            .setMessage(R.string.enable_accessibility_service_message)
+            .setPositiveButton(R.string.enable_accessibility_service_settings_button) { _, _ ->
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
+            .setNegativeButton(R.string.remind_me_later) { dialog, _ ->
+                dialog.dismiss()
+            }
+            .setCancelable(true)
+            .show()
     }
 
     companion object {
