@@ -410,7 +410,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                             /*
                             {"action":"msg",
                             "type":"tunnel",
-                            "value":"*\/meshrelay.ashx?...",
+                            "value":"*\/meshrelay.ashx?...\",
                             "usage":5,
                             "servertlshash":"97eaf674eab131d3775f12cfa9c978d185a0e9caaf3a854bf0eb4ff94c2d6c53ca3dc456da149002804666fbbdae2fc9",
                             "soptions":{
@@ -634,7 +634,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                 var x = JSONObject()
                 x.put("address", j.address.hostAddress)
                 if (n.hardwareAddress != null) {
-                    var mac = n.hardwareAddress.toHex().toUpperCase()
+                    var mac = n.hardwareAddress.toHex().uppercase()
                     x.put("mac", mac.substring(0, 2) + ":" + mac.substring(2, 4) + ":" + mac.substring(4, 6) + ":" + mac.substring(6, 8) + ":" + mac.substring(8, 10) + ":" + mac.substring(10, 12))
                 }
                 if (n.isUp) {
@@ -911,12 +911,12 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     } catch (e: Exception) {
                     }
                     if ((t > 0) && (t <= 10000)) {
-                        val v = parent.getApplicationContext()
-                                .getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                        val v = parent.applicationContext
+                                .getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
                         if (v == null) {
                             r = "Not supported"
                         } else {
-                            // Vibrate for 500 milliseconds
+                            // Vibrate for t milliseconds
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                 v.vibrate(
                                         VibrationEffect.createOneShot(
@@ -925,6 +925,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                                         )
                                 )
                             } else {
+                                @Suppress("DEPRECATION")
                                 v.vibrate(t)
                             }
                             r = "ok"
@@ -938,7 +939,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                 if (splitCmd.size < 2) {
                     r = "Usage:\r\n  flash [milliseconds]";
                 } else if (splitCmd.size >= 2) {
-                    var isFlashAvailable = parent.getApplicationContext().getPackageManager()
+                    var isFlashAvailable = parent.applicationContext.packageManager
                             .hasSystemFeature(PackageManager.FEATURE_CAMERA_FRONT);
                     if (!isFlashAvailable) {
                         r = "Flash not available"
@@ -949,9 +950,9 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                         } catch (e: Exception) {
                         }
                         if ((t > 0) && (t <= 10000)) {
-                            var mCameraManager = parent.getApplicationContext().getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                            var mCameraManager = parent.applicationContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
                             try {
-                                var mCameraId = mCameraManager.getCameraIdList()[0];
+                                var mCameraId = mCameraManager.cameraIdList[0];
                                 mCameraManager.setTorchMode(mCameraId, true);
                                 thread {
                                     Thread.sleep(t)
