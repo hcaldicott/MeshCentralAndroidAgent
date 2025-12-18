@@ -160,6 +160,9 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
         if ((usage == 2) && (g_ScreenCaptureService != null)) {
             g_ScreenCaptureService!!.checkNoMoreDesktopTunnels()
         }
+
+        // Hide the cursor overlay when tunnel closes
+        MeshInputAccessibilityService.instance?.hideCursor()
     }
 
     fun sendCtrlResponse(values: JSONObject?) {
@@ -325,8 +328,8 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 updateDesktopDisplaySize()
             }
             6 -> { // Refresh
-                // Nop
                 println("Desktop Refresh")
+                g_ScreenCaptureService?.requestDesktopRefresh()
             }
             8 -> { // Pause
                 // Nop

@@ -4,7 +4,9 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.app.UiAutomation
 import android.content.Context
+import android.content.res.Resources
 import android.graphics.Path
+import android.graphics.Point
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -69,10 +71,67 @@ class MeshInputAccessibilityService : AccessibilityService() {
     private val CURSOR_UPDATE_INTERVAL = 16L // ~60fps max update rate
     private val cursorIdleRunnable = Runnable { snapCursorToLastPosition() }
 
+    // Screen dimensions for coordinate scaling
+    private var remoteScreenWidth = 0
+    private var remoteScreenHeight = 0
+    private var actualScreenWidth = 0
+    private var actualScreenHeight = 0
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        initScreenDimensions()
         initCursorOverlay()
+    }
+
+    private fun initScreenDimensions() {
+        // Remote screen dimensions (what the capture reports to remote client)
+        remoteScreenWidth = Resources.getSystem().displayMetrics.widthPixels
+        remoteScreenHeight = Resources.getSystem().displayMetrics.heightPixels
+
+        // Actual screen dimensions (full screen including system bars)
+        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = wm.currentWindowMetrics.bounds
+            actualScreenWidth = bounds.width()
+            actualScreenHeight = bounds.height()
+        } else {
+            val size = Point()
+            @Suppress("DEPRECATION")
+            wm.defaultDisplay.getRealSize(size)
+            actualScreenWidth = size.x
+            actualScreenHeight = size.y
+        }
+
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "Screen dimensions: remote=${remoteScreenWidth}x${remoteScreenHeight}, actual=${actualScreenWidth}x${actualScreenHeight}")
+        }
+    }
+
+    // Scale coordinates from remote space to actual screen space
+    // Two scalings are involved:
+    // 1. Desktop scaling (g_desktop_scalingLevel): remote sends coords in scaled image space
+    // 2. System bar scaling: displayMetrics vs actual full screen
+    private fun scaleCoordinates(x: Int, y: Int): Pair<Int, Int> {
+        // First, reverse the desktop scaling (g_desktop_scalingLevel: 1024 = 100%, 512 = 50%)
+        val desktopScaledX = if (g_desktop_scalingLevel != 1024) {
+            (x * 1024) / g_desktop_scalingLevel
+        } else x
+
+        val desktopScaledY = if (g_desktop_scalingLevel != 1024) {
+            (y * 1024) / g_desktop_scalingLevel
+        } else y
+
+        // Then, apply system bar scaling (displayMetrics -> actual screen)
+        val scaledX = if (remoteScreenWidth > 0 && actualScreenWidth > 0 && remoteScreenWidth != actualScreenWidth) {
+            (desktopScaledX * actualScreenWidth) / remoteScreenWidth
+        } else desktopScaledX
+
+        val scaledY = if (remoteScreenHeight > 0 && actualScreenHeight > 0 && remoteScreenHeight != actualScreenHeight) {
+            (desktopScaledY * actualScreenHeight) / remoteScreenHeight
+        } else desktopScaledY
+
+        return Pair(scaledX, scaledY)
     }
 
     private fun initCursorOverlay() {
@@ -235,18 +294,20 @@ class MeshInputAccessibilityService : AccessibilityService() {
             }
             return
         }
+        // Scale coordinates for gesture injection
+        val (scaledX, scaledY) = scaleCoordinates(x, y)
         if (gesturesSupported) {
             if (pointerDown) {
                 if (BuildConfig.DEBUG) {
-                    Log.d(logTag, "injectMouseMove (gesture) x=$x y=$y")
+                    Log.d(logTag, "injectMouseMove (gesture) x=$x y=$y -> scaled($scaledX,$scaledY)")
                 }
-                continueStroke(x, y)
+                continueStroke(scaledX, scaledY)
             } else if (BuildConfig.DEBUG) {
                 Log.d(logTag, "injectMouseMove ignored (no button down) x=$x y=$y")
             }
             return
         }
-        dispatchMotionEvent(if (pointerDown) MotionEvent.ACTION_MOVE else MotionEvent.ACTION_HOVER_MOVE, x, y)
+        dispatchMotionEvent(if (pointerDown) MotionEvent.ACTION_MOVE else MotionEvent.ACTION_HOVER_MOVE, scaledX, scaledY)
     }
 
     fun injectMouseDown(x: Int, y: Int) {
@@ -257,19 +318,21 @@ class MeshInputAccessibilityService : AccessibilityService() {
             }
             return
         }
+        // Scale coordinates for gesture injection
+        val (scaledX, scaledY) = scaleCoordinates(x, y)
         pointerDown = true
         if (gesturesSupported) {
             if (BuildConfig.DEBUG) {
-                Log.d(logTag, "injectMouseDown (gesture) x=$x y=$y")
+                Log.d(logTag, "injectMouseDown (gesture) x=$x y=$y -> scaled($scaledX,$scaledY)")
             }
-            startStroke(x, y)
-            continueStroke(x, y)
+            startStroke(scaledX, scaledY)
+            continueStroke(scaledX, scaledY)
             return
         }
         if (BuildConfig.DEBUG) {
-            Log.d(logTag, "injectMouseDown x=$x y=$y")
+            Log.d(logTag, "injectMouseDown x=$x y=$y -> scaled($scaledX,$scaledY)")
         }
-        dispatchMotionEvent(MotionEvent.ACTION_DOWN, x, y)
+        dispatchMotionEvent(MotionEvent.ACTION_DOWN, scaledX, scaledY)
         pointerDownTime = SystemClock.uptimeMillis()
     }
 
@@ -281,18 +344,20 @@ class MeshInputAccessibilityService : AccessibilityService() {
             }
             return
         }
+        // Scale coordinates for gesture injection
+        val (scaledX, scaledY) = scaleCoordinates(x, y)
         if (gesturesSupported) {
             if (BuildConfig.DEBUG) {
-                Log.d(logTag, "injectMouseUp (gesture) x=$x y=$y")
+                Log.d(logTag, "injectMouseUp (gesture) x=$x y=$y -> scaled($scaledX,$scaledY)")
             }
-            endStroke(x, y)
+            endStroke(scaledX, scaledY)
             pointerDown = false
             return
         }
         if (BuildConfig.DEBUG) {
-            Log.d(logTag, "injectMouseUp x=$x y=$y")
+            Log.d(logTag, "injectMouseUp x=$x y=$y -> scaled($scaledX,$scaledY)")
         }
-        dispatchMotionEvent(MotionEvent.ACTION_UP, x, y)
+        dispatchMotionEvent(MotionEvent.ACTION_UP, scaledX, scaledY)
         pointerDown = false
         pointerDownTime = 0
     }
@@ -321,14 +386,16 @@ class MeshInputAccessibilityService : AccessibilityService() {
             }
             return
         }
+        // Scale coordinates for gesture injection
+        val (scaledX, scaledY) = scaleCoordinates(x, y)
         if (gesturesSupported) {
             if (BuildConfig.DEBUG) {
-                Log.d(logTag, "injectMouseScroll (gesture) x=$x y=$y delta=$scrollDelta")
+                Log.d(logTag, "injectMouseScroll (gesture) x=$x y=$y -> scaled($scaledX,$scaledY) delta=$scrollDelta")
             }
-            performScrollGesture(x, y, scrollDelta)
+            performScrollGesture(scaledX, scaledY, scrollDelta)
             return
         }
-        dispatchMotionEvent(MotionEvent.ACTION_SCROLL, x, y, scrollY = scrollDelta.toFloat())
+        dispatchMotionEvent(MotionEvent.ACTION_SCROLL, scaledX, scaledY, scrollY = scrollDelta.toFloat())
     }
 
     private fun startStroke(x: Int, y: Int) {

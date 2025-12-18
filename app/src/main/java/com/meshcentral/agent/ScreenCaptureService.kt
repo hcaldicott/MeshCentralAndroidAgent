@@ -436,6 +436,13 @@ class ScreenCaptureService : Service() {
         newcrcs = null
     }
 
+    fun requestDesktopRefresh() {
+        mHandler?.post {
+            resetTileState()
+            sendAgentConsole("Desktop refresh requested")
+        }
+    }
+
     private fun stopProjection() {
         if (mHandler != null) {
             mHandler!!.post {

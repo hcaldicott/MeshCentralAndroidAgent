@@ -141,22 +141,34 @@ class InputPointerView(context: Context) : View(context) {
         if (!isAttached) return
         val params = layoutParams ?: return
 
-        // Scale coordinates from remote screen space to actual screen space
-        // Remote screen may be smaller (excludes system bars), actual is full screen
-        val mappedX = if (remoteScreenWidth > 0 && actualScreenWidth > 0 && remoteScreenWidth != actualScreenWidth) {
-            (x * actualScreenWidth) / remoteScreenWidth
+        // Two scalings are involved:
+        // 1. Desktop scaling (g_desktop_scalingLevel): remote sends coords in scaled image space
+        // 2. System bar scaling: displayMetrics vs actual full screen
+
+        // First, reverse the desktop scaling (g_desktop_scalingLevel: 1024 = 100%, 512 = 50%)
+        val desktopScaledX = if (g_desktop_scalingLevel != 1024) {
+            (x * 1024) / g_desktop_scalingLevel
         } else x
 
-        val mappedY = if (remoteScreenHeight > 0 && actualScreenHeight > 0 && remoteScreenHeight != actualScreenHeight) {
-            (y * actualScreenHeight) / remoteScreenHeight
+        val desktopScaledY = if (g_desktop_scalingLevel != 1024) {
+            (y * 1024) / g_desktop_scalingLevel
         } else y
+
+        // Then, apply system bar scaling (displayMetrics -> actual screen)
+        val mappedX = if (remoteScreenWidth > 0 && actualScreenWidth > 0 && remoteScreenWidth != actualScreenWidth) {
+            (desktopScaledX * actualScreenWidth) / remoteScreenWidth
+        } else desktopScaledX
+
+        val mappedY = if (remoteScreenHeight > 0 && actualScreenHeight > 0 && remoteScreenHeight != actualScreenHeight) {
+            (desktopScaledY * actualScreenHeight) / remoteScreenHeight
+        } else desktopScaledY
 
         // Center the dot on the cursor position
         params.x = mappedX - sizePx / 2
         params.y = mappedY - sizePx / 2
 
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("InputPointerView", "positionView: remote($x,$y) -> actual($mappedX,$mappedY), remoteScreen=${remoteScreenWidth}x${remoteScreenHeight}, actualScreen=${actualScreenWidth}x${actualScreenHeight}")
+            android.util.Log.d("InputPointerView", "positionView: remote($x,$y) -> desktop($desktopScaledX,$desktopScaledY) -> actual($mappedX,$mappedY), scale=$g_desktop_scalingLevel")
         }
 
         try {
