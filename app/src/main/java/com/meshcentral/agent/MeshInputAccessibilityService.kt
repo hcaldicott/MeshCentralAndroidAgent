@@ -644,7 +644,6 @@ class MeshInputAccessibilityService : AccessibilityService() {
                 else -> return@withFocusedEditableNode false
             }
             setSelection(node, targetPosition)
-            true
         }
     }
 
@@ -685,14 +684,18 @@ class MeshInputAccessibilityService : AccessibilityService() {
         return result
     }
 
-    private fun setSelection(node: AccessibilityNodeInfo, position: Int, maxLength: Int? = null) {
+    private fun setSelection(node: AccessibilityNodeInfo, position: Int, maxLength: Int? = null): Boolean {
         val safeMax = maxLength ?: (node.text?.length ?: 0)
         val clamped = position.coerceIn(0, safeMax)
         val args = Bundle().apply {
             putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, clamped)
             putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, clamped)
         }
-        node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_SELECTION.id, args)
+        val result = node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_SELECTION.id, args)
+        if (BuildConfig.DEBUG) {
+            Log.d(logTag, "setSelection position=$clamped safeMax=$safeMax result=$result")
+        }
+        return result
     }
 
     private inline fun withFocusedEditableNode(block: (AccessibilityNodeInfo) -> Boolean): Boolean {

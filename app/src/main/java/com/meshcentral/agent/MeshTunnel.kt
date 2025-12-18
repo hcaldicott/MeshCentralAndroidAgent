@@ -511,39 +511,62 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
 
     private fun mapRemoteKeyCode(remoteCode: Int): Pair<Int, Int>? {
         return when (remoteCode) {
+            // Letters A-Z (VK_A to VK_Z: 65-90)
             in 65..90 -> Pair(KeyEvent.KEYCODE_A + (remoteCode - 65), 0)
+            // Digits 0-9 (VK_0 to VK_9: 48-57)
             in 48..57 -> Pair(KeyEvent.KEYCODE_0 + (remoteCode - 48), 0)
+            // Numpad 0-9 (VK_NUMPAD0 to VK_NUMPAD9: 96-105)
             in 96..105 -> Pair(KeyEvent.KEYCODE_NUMPAD_0 + (remoteCode - 96), 0)
+            // Function keys F1-F12 (VK_F1 to VK_F12: 112-123)
             in 112..123 -> Pair(KeyEvent.KEYCODE_F1 + (remoteCode - 112), 0)
-            8 -> Pair(KeyEvent.KEYCODE_DEL, 0)
-            9 -> Pair(KeyEvent.KEYCODE_TAB, 0)
-            13 -> Pair(KeyEvent.KEYCODE_ENTER, 0)
-            16 -> Pair(KeyEvent.KEYCODE_SHIFT_LEFT, 0)
-            17 -> Pair(KeyEvent.KEYCODE_CTRL_LEFT, 0)
-            18 -> Pair(KeyEvent.KEYCODE_ALT_LEFT, 0)
-            20 -> Pair(KeyEvent.KEYCODE_CAPS_LOCK, 0)
-            27 -> Pair(KeyEvent.KEYCODE_ESCAPE, 0)
-            32 -> Pair(KeyEvent.KEYCODE_SPACE, 0)
-            35 -> Pair(KeyEvent.KEYCODE_MOVE_END, 0)
-            36 -> Pair(KeyEvent.KEYCODE_MOVE_HOME, 0)
-            45 -> Pair(KeyEvent.KEYCODE_INSERT, 0)
-            46 -> Pair(KeyEvent.KEYCODE_FORWARD_DEL, 0)
-            91 -> Pair(KeyEvent.KEYCODE_META_LEFT, 0)
-            92 -> Pair(KeyEvent.KEYCODE_META_RIGHT, 0)
-            93 -> Pair(KeyEvent.KEYCODE_MENU, 0)
-            144 -> Pair(KeyEvent.KEYCODE_NUM_LOCK, 0)
-            145 -> Pair(KeyEvent.KEYCODE_SCROLL_LOCK, 0)
-            186 -> Pair(KeyEvent.KEYCODE_SEMICOLON, 0)
-            187 -> Pair(KeyEvent.KEYCODE_EQUALS, 0)
-            188 -> Pair(KeyEvent.KEYCODE_COMMA, 0)
-            189 -> Pair(KeyEvent.KEYCODE_MINUS, 0)
-            190 -> Pair(KeyEvent.KEYCODE_PERIOD, 0)
-            191 -> Pair(KeyEvent.KEYCODE_SLASH, 0)
-            192 -> Pair(KeyEvent.KEYCODE_GRAVE, 0)
-            219 -> Pair(KeyEvent.KEYCODE_LEFT_BRACKET, 0)
-            220 -> Pair(KeyEvent.KEYCODE_BACKSLASH, 0)
-            221 -> Pair(KeyEvent.KEYCODE_RIGHT_BRACKET, 0)
-            222 -> Pair(KeyEvent.KEYCODE_APOSTROPHE, 0)
+            // Control keys
+            8 -> Pair(KeyEvent.KEYCODE_DEL, 0)              // VK_BACK (Backspace)
+            9 -> Pair(KeyEvent.KEYCODE_TAB, 0)              // VK_TAB
+            13 -> Pair(KeyEvent.KEYCODE_ENTER, 0)           // VK_RETURN
+            16 -> Pair(KeyEvent.KEYCODE_SHIFT_LEFT, 0)      // VK_SHIFT
+            17 -> Pair(KeyEvent.KEYCODE_CTRL_LEFT, 0)       // VK_CONTROL
+            18 -> Pair(KeyEvent.KEYCODE_ALT_LEFT, 0)        // VK_MENU (Alt)
+            19 -> Pair(KeyEvent.KEYCODE_BREAK, 0)           // VK_PAUSE
+            20 -> Pair(KeyEvent.KEYCODE_CAPS_LOCK, 0)       // VK_CAPITAL
+            27 -> Pair(KeyEvent.KEYCODE_ESCAPE, 0)          // VK_ESCAPE
+            32 -> Pair(KeyEvent.KEYCODE_SPACE, 0)           // VK_SPACE
+            // Navigation keys
+            33 -> Pair(KeyEvent.KEYCODE_PAGE_UP, 0)         // VK_PRIOR (Page Up)
+            34 -> Pair(KeyEvent.KEYCODE_PAGE_DOWN, 0)       // VK_NEXT (Page Down)
+            35 -> Pair(KeyEvent.KEYCODE_MOVE_END, 0)        // VK_END
+            36 -> Pair(KeyEvent.KEYCODE_MOVE_HOME, 0)       // VK_HOME
+            37 -> Pair(KeyEvent.KEYCODE_DPAD_LEFT, 0)       // VK_LEFT
+            38 -> Pair(KeyEvent.KEYCODE_DPAD_UP, 0)         // VK_UP
+            39 -> Pair(KeyEvent.KEYCODE_DPAD_RIGHT, 0)      // VK_RIGHT
+            40 -> Pair(KeyEvent.KEYCODE_DPAD_DOWN, 0)       // VK_DOWN
+            44 -> Pair(KeyEvent.KEYCODE_SYSRQ, 0)           // VK_SNAPSHOT (Print Screen)
+            45 -> Pair(KeyEvent.KEYCODE_INSERT, 0)          // VK_INSERT
+            46 -> Pair(KeyEvent.KEYCODE_FORWARD_DEL, 0)     // VK_DELETE
+            // Windows/Meta keys
+            91 -> Pair(KeyEvent.KEYCODE_META_LEFT, 0)       // VK_LWIN
+            92 -> Pair(KeyEvent.KEYCODE_META_RIGHT, 0)      // VK_RWIN
+            93 -> Pair(KeyEvent.KEYCODE_MENU, 0)            // VK_APPS
+            // Numpad operators
+            106 -> Pair(KeyEvent.KEYCODE_NUMPAD_MULTIPLY, 0) // VK_MULTIPLY
+            107 -> Pair(KeyEvent.KEYCODE_NUMPAD_ADD, 0)      // VK_ADD
+            109 -> Pair(KeyEvent.KEYCODE_NUMPAD_SUBTRACT, 0) // VK_SUBTRACT
+            110 -> Pair(KeyEvent.KEYCODE_NUMPAD_DOT, 0)      // VK_DECIMAL
+            111 -> Pair(KeyEvent.KEYCODE_NUMPAD_DIVIDE, 0)   // VK_DIVIDE
+            // Lock keys
+            144 -> Pair(KeyEvent.KEYCODE_NUM_LOCK, 0)       // VK_NUMLOCK
+            145 -> Pair(KeyEvent.KEYCODE_SCROLL_LOCK, 0)    // VK_SCROLL
+            // OEM keys (US keyboard layout)
+            186 -> Pair(KeyEvent.KEYCODE_SEMICOLON, 0)      // VK_OEM_1 (;:)
+            187 -> Pair(KeyEvent.KEYCODE_EQUALS, 0)         // VK_OEM_PLUS (=+)
+            188 -> Pair(KeyEvent.KEYCODE_COMMA, 0)          // VK_OEM_COMMA
+            189 -> Pair(KeyEvent.KEYCODE_MINUS, 0)          // VK_OEM_MINUS
+            190 -> Pair(KeyEvent.KEYCODE_PERIOD, 0)         // VK_OEM_PERIOD
+            191 -> Pair(KeyEvent.KEYCODE_SLASH, 0)          // VK_OEM_2 (/?)
+            192 -> Pair(KeyEvent.KEYCODE_GRAVE, 0)          // VK_OEM_3 (`~)
+            219 -> Pair(KeyEvent.KEYCODE_LEFT_BRACKET, 0)   // VK_OEM_4 ([{)
+            220 -> Pair(KeyEvent.KEYCODE_BACKSLASH, 0)      // VK_OEM_5 (\|)
+            221 -> Pair(KeyEvent.KEYCODE_RIGHT_BRACKET, 0)  // VK_OEM_6 (]})
+            222 -> Pair(KeyEvent.KEYCODE_APOSTROPHE, 0)     // VK_OEM_7 ('")
             else -> null
         }
     }
