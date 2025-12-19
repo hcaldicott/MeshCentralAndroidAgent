@@ -186,6 +186,13 @@ class MeshAgentService : Service(), MeshAgentHost {
                 mainFragment?.refreshInfo()
             }
         }
+        if ((meshAgent != null) && (meshAgent!!.state == 0)) {
+            stopMeshAgentConnection()
+            if (!g_userDisconnect && g_autoConnect) {
+                startMeshAgentConnection()
+                startRetryTimer()
+            }
+        }
     }
 
     override fun refreshInfo() {
