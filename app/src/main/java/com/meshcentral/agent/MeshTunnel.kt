@@ -239,6 +239,8 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                             }
                             // Send the display size
                             updateDesktopDisplaySize()
+                            // Force the next capture to be a full frame for the new viewer
+                            g_ScreenCaptureService?.requestDesktopRefresh()
                         }
                     }
                 } else {
