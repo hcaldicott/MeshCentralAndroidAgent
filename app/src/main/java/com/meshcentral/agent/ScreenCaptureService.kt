@@ -28,6 +28,7 @@ import android.view.WindowManager
 import androidx.core.util.Pair
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
+import org.json.JSONObject
 import java.io.*
 
 
@@ -42,6 +43,7 @@ class ScreenCaptureService : Service() {
     private var mOrientationChangeCallback: ScreenCaptureService.OrientationChangeCallback? = null
     var mWidth = 0
     var mHeight = 0
+    private var projectionStopped = true
 
     // Tile data
     private var tilesWide : Int = 0
@@ -342,6 +344,7 @@ class ScreenCaptureService : Service() {
                     if (mImageReader != null) mImageReader!!.setOnImageAvailableListener(null, null)
                     if (mOrientationChangeCallback != null) mOrientationChangeCallback!!.disable()
                     mMediaProjection!!.unregisterCallback(this@MediaProjectionStopCallback)
+                    cleanupAfterProjectionStop(true)
                 }
             }
         }
@@ -397,6 +400,7 @@ class ScreenCaptureService : Service() {
                 // TODO: Deal with this situation nicely.
             }
             if (mMediaProjection != null) {
+                projectionStopped = false
                 resetTileState() // force a keyframe when projection restarts
                 // Display metrics
                 mDensity = Resources.getSystem().displayMetrics.densityDpi
@@ -456,10 +460,38 @@ class ScreenCaptureService : Service() {
             mHandler!!.post {
                 if (mMediaProjection != null) {
                     mMediaProjection!!.stop()
-                    g_ScreenCaptureService = null
-                    sendAgentConsole("Stopped display sharing")
+                    cleanupAfterProjectionStop(false)
                 }
             }
+        }
+    }
+
+    private fun closeDesktopTunnels() {
+        if (meshAgent == null) return
+        val desktopTunnels = meshAgent!!.tunnels.filter { it.usage == 2 }
+        if (desktopTunnels.isEmpty()) return
+        for (tunnel in desktopTunnels) {
+            if (tunnel.state == 2) {
+                val json = JSONObject()
+                json.put("type", "console")
+                json.put("msg", "Stopped display sharing")
+                json.put("msgid", 0)
+                tunnel.sendCtrlResponse(json)
+            }
+            tunnel.Stop()
+        }
+    }
+
+    private fun cleanupAfterProjectionStop(stopService: Boolean) {
+        if (projectionStopped) return
+        projectionStopped = true
+        closeDesktopTunnels()
+        g_ScreenCaptureService = null
+        sendAgentConsole("Stopped display sharing")
+        mMediaProjection = null
+        stopForeground(true)
+        if (stopService) {
+            stopSelf()
         }
     }
 
@@ -537,9 +569,7 @@ class ScreenCaptureService : Service() {
             resetTileState() // clear CRCs when all tunnels close so next viewer gets full image
             // If there are no more desktop tunnels, stop projection
             if (!g_autoConsent) {
-                g_mainActivity!!.stopProjection()
-            } else { // reset the tilesFullWide and tilesFullHigh so on next connect it will send the whole image rather than changed tiles
-                // tile state already cleared
+                g_mainActivity?.stopProjection()
             }
         }
     }
