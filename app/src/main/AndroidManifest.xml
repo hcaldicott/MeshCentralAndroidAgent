@@ -70,9 +70,9 @@
         </receiver>
 
         <service
-            android:name=".BootService"
-            android:foregroundServiceType="location|mediaProjection"
-            android:exported="false" />
+            android:name=".MeshAgentService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
         <service
             android:name=".MeshFirebaseMessagingService"
             android:exported="false">

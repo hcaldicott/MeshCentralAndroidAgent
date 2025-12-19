@@ -101,7 +101,9 @@ var g_desktop_frameRateLimiter : Int = 100
 // Two-factor authentication values
 var g_auth_url : Uri? = null
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), MeshAgentHost {
+    override val context: Context
+        get() = this
     var alert : AlertDialog? = null
     private var accessibilityPromptDialog: AlertDialog? = null
     lateinit var notificationChannel: NotificationChannel
@@ -155,7 +157,7 @@ class MainActivity : AppCompatActivity() {
         }
 
     // Launch intent sender for file deletion permission (called from MeshTunnel)
-    fun launchIntentSenderForResult(intentSender: android.content.IntentSender, pad: PendingActivityData) {
+    override fun launchIntentSenderForResult(intentSender: android.content.IntentSender, pad: PendingActivityData) {
         pendingIntentSenderData = pad
         val request = IntentSenderRequest.Builder(intentSender).build()
         intentSenderLauncher.launch(request)
@@ -238,6 +240,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        handleCommandIntent(intent)
+
         // Activate the settings
         settingsChanged()
         if (g_autoConnect && !g_userDisconnect && (meshAgent == null)) {
@@ -245,9 +249,42 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun handleCommandIntent(intent: Intent?) {
+        intent ?: return
+        if (intent.getBooleanExtra(EXTRA_REQUEST_PROJECTION, false)) {
+            intent.removeExtra(EXTRA_REQUEST_PROJECTION)
+            startProjection()
+        }
+
+        intent.getStringExtra(EXTRA_OPEN_URL)?.let { url ->
+            intent.removeExtra(EXTRA_OPEN_URL)
+            openUrl(url)
+        }
+
+        val alertTitle = intent.getStringExtra(EXTRA_ALERT_TITLE)
+        val alertMessage = intent.getStringExtra(EXTRA_ALERT_MESSAGE)
+        if (!alertTitle.isNullOrEmpty() || !alertMessage.isNullOrEmpty()) {
+            intent.removeExtra(EXTRA_ALERT_TITLE)
+            intent.removeExtra(EXTRA_ALERT_MESSAGE)
+            showAlertMessage(
+                alertTitle ?: getString(R.string.app_name),
+                alertMessage ?: ""
+            )
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         showAccessibilityServicePromptIfNeeded()
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        handleCommandIntent(intent)
+    }
+
+    override fun runOnUiThread(action: () -> Unit) {
+        super.runOnUiThread(action)
     }
 
     private fun sendConsoleMessage(msg: String) {
@@ -375,7 +412,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Open a URL in the web view fragment
-    fun openUrl(xpageUrl: String) : Boolean {
+    override fun openUrl(xpageUrl: String) : Boolean {
         if (visibleScreen == 2) return false
         pageUrl = xpageUrl
         if (visibleScreen == 1) {
@@ -388,7 +425,7 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
-    fun returnToMainScreen() {
+    override fun returnToMainScreen() {
         this.runOnUiThread {
             if (visibleScreen == 2) {
                 if (scannerFragment != null) scannerFragment?.exit()
@@ -402,7 +439,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun agentStateChanged() {
+    override fun agentStateChanged() {
         this.runOnUiThread {
             if ((meshAgent != null) && (meshAgent?.state == 0)) {
                 meshAgent = null
@@ -413,7 +450,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun refreshInfo() {
+    override fun refreshInfo() {
         this.runOnUiThread {
             mainFragment?.refreshInfo()
         }
@@ -435,7 +472,7 @@ class MainActivity : AppCompatActivity() {
         alert = builder.show()
     }
 
-    fun showAlertMessage(title: String, msg: String) {
+    override fun showAlertMessage(title: String, msg: String) {
         if (alert != null) {
             alert?.dismiss()
             alert = null
@@ -449,7 +486,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun showToastMessage(msg: String) {
+    override fun showToastMessage(msg: String) {
         this.runOnUiThread {
             val toast = Toast.makeText(applicationContext, msg, Toast.LENGTH_LONG)
             toast?.setGravity(Gravity.CENTER, 0, 300)
@@ -458,22 +495,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun getServerHost() : String? {
-        if (serverLink == null) return null
-        val x : List<String> = serverLink!!.split(',')
-        val serverHost = x[0]
-        return serverHost.substring(5)
+        return getServerHostFromLink(serverLink)
     }
 
     fun getServerHash() : String? {
-        if (serverLink == null) return null
-        val x : List<String> = serverLink!!.split(',')
-        return x[1]
+        return getServerHashFromLink(serverLink)
     }
 
     fun getDevGroup() : String? {
-        if (serverLink == null) return null
-        val x : List<String> = serverLink!!.split(',')
-        return x[2]
+        return getDevGroupFromLink(serverLink)
     }
 
     fun isAgentDisconnected() : Boolean {
@@ -719,7 +749,7 @@ class MainActivity : AppCompatActivity() {
 
     // Start screen sharing
     @Suppress("NewApi")
-    fun startProjection() {
+    override fun startProjection() {
         if ((g_ScreenCaptureService != null) || (meshAgent == null) || (meshAgent!!.state != 3)) return
         val mProjectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         // On API 34+, use createConfigForDefaultDisplay to force entire screen capture only
@@ -734,9 +764,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Stop screen sharing
-    fun stopProjection() {
+    override fun stopProjection() {
         if (g_ScreenCaptureService == null) return
         startService(com.meshcentral.agent.ScreenCaptureService.getStopIntent(this))
+    }
+
+    override fun launchActivity(intent: Intent) {
+        startActivity(intent)
     }
 
     fun settingsChanged() {
@@ -761,6 +795,20 @@ class MainActivity : AppCompatActivity() {
             } else if (!g_autoConsent && g_ScreenCaptureService != null) {
                 stopProjection()
             }
+            updateMeshAgentServiceState(g_autoStart)
+        }
+    }
+
+    private fun updateMeshAgentServiceState(autoStart: Boolean) {
+        val serviceIntent = Intent(this, MeshAgentService::class.java)
+        if (autoStart) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(this, serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+        } else {
+            stopService(serviceIntent)
         }
     }
 
@@ -826,5 +874,9 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         const val REQUEST_ALL_PERMISSIONS = 1
+        const val EXTRA_OPEN_URL = "com.meshcentral.agent.extra.OPEN_URL"
+        const val EXTRA_REQUEST_PROJECTION = "com.meshcentral.agent.extra.REQUEST_PROJECTION"
+        const val EXTRA_ALERT_TITLE = "com.meshcentral.agent.extra.ALERT_TITLE"
+        const val EXTRA_ALERT_MESSAGE = "com.meshcentral.agent.extra.ALERT_MESSAGE"
     }
 }

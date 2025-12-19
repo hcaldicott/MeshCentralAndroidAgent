@@ -62,5 +62,5 @@
     <string name="autostart">Autostart</string>
     <string name="start_manually">Manuell starten</string>
     <string name="start_with_system">Mit System starten</string>
-    <string name="starting_meshcentral_bootservice">Starte MeshCentral BootService...</string>
+    <string name="meshcentral_service_notification">MeshCentral Agent läuft</string>
 </resources>

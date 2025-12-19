@@ -5,6 +5,7 @@ import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.database.Cursor
+import android.content.IntentSender
 import android.net.Uri
 import android.os.Build
 import android.os.CountDownTimer
@@ -228,7 +229,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                         }
                         if (g_ScreenCaptureService == null) {
                             // Request media projection
-                            parent.parent.startProjection()
+                            parent.host.startProjection()
                         } else {
                             if (meshAgent?.tunnels?.getOrNull(0) != null) {
                                 val json = JSONObject()
@@ -608,34 +609,29 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
 
     fun updateDesktopDisplaySize() {
         if ((g_ScreenCaptureService == null) || (_webSocket == null)) return
-        //println("updateDesktopDisplaySize: ${g_ScreenCaptureService!!.mWidth} x ${g_ScreenCaptureService!!.mHeight}")
 
-        // Get the display size
         var mWidth : Int = g_ScreenCaptureService!!.mWidth
         var mHeight : Int = g_ScreenCaptureService!!.mHeight
 
-        // Scale the display if needed
         if (g_desktop_scalingLevel != 1024) {
             mWidth = (mWidth * g_desktop_scalingLevel) / 1024
             mHeight = (mHeight * g_desktop_scalingLevel) / 1024
         }
 
-        // Send the display size command
         val bytesOut = ByteArrayOutputStream()
         DataOutputStream(bytesOut).use { dos ->
             with(dos) {
-                writeShort(7) // Screen size command
-                writeShort(8) // Screen size command size
-                writeShort(mWidth) // Width
-                writeShort(mHeight) // Height
+                writeShort(7)
+                writeShort(8)
+                writeShort(mWidth)
+                writeShort(mHeight)
             }
         }
         _webSocket!!.send(bytesOut.toByteArray().toByteString())
     }
 
-    // Cause some data to be sent over the websocket control channel every 2 minutes to keep it open
     private fun startConnectionTimer() {
-        parent.parent.runOnUiThread {
+        parent.host.runOnUiThread {
             connectionTimer = object: CountDownTimer(120000000, 120000) {
                 override fun onTick(millisUntilFinished: Long) {
                     _webSocket?.send(ByteArray(1).toByteString()) // If not, sent a single zero byte
@@ -711,7 +707,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                     }
                 } else {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        val resolver: ContentResolver = parent.parent.contentResolver
+                        val resolver: ContentResolver = parent.host.context.contentResolver
                         val contentValues = ContentValues()
                         val fileUri: Uri?
                         contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, name)
@@ -819,7 +815,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 r.put(f)
             }
         } else {
-        val cursor: Cursor? = parent.parent.contentResolver.query(
+        val cursor: Cursor? = parent.host.context.contentResolver.query(
                 uri,
                 projection,
                 null,
@@ -883,7 +879,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 fileDeleteResponse(req, false) // Send failure
             }
         } else {
-            val cursor: Cursor? = parent.parent.contentResolver.query(
+            val cursor: Cursor? = parent.host.context.contentResolver.query(
                 uri,
                 projection,
                 null,
@@ -908,7 +904,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 }
                 for (i in 0 until filenames.length()) {
                     try {
-                        parent.parent.contentResolver.delete(fileUriArray[i],null,null)
+                        parent.host.context.contentResolver.delete(fileUriArray[i],null,null)
                         fileDeleteResponse(req, true) // Send success
                     } catch (securityException: SecurityException) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -922,7 +918,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
 
                             // Launch the activity using the modern Activity Result API
                             val intentSender = recoverableSecurityException.userAction.actionIntent.intentSender
-                            parent.parent.launchIntentSenderForResult(intentSender, pad)
+                            parent.host.launchIntentSenderForResult(intentSender, pad)
                         } else {
                             fileDeleteResponse(req, false) // Send fail
                         }
@@ -934,7 +930,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
 
     fun deleteFileEx(pad: PendingActivityData) {
         try {
-            parent.parent.contentResolver.delete(pad.url, pad.where, arrayOf(pad.args))
+            parent.host.context.contentResolver.delete(pad.url, pad.where, arrayOf(pad.args))
             fileDeleteResponse(pad.req, true) // Send success
         } catch (ex: Exception) {
             fileDeleteResponse(pad.req, false) // Send fail
@@ -973,7 +969,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 val contentUrl = Uri.fromFile(file)
                 try {
                     // Serve the file
-                    parent.parent.contentResolver.openInputStream(contentUrl).use { stream ->
+                    parent.host.context.contentResolver.openInputStream(contentUrl).use { stream ->
                             // Perform operation on stream
                             val buf = ByteArray(65535)
                             var len : Int
@@ -999,7 +995,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                 // file does not exist
             }
         } else {
-            val cursor: Cursor? = parent.parent.contentResolver.query(
+            val cursor: Cursor? = parent.host.context.contentResolver.query(
                     uri,
                     projection,
                     null,
@@ -1023,7 +1019,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
                         parent.logServerEventEx(106, eventArgs, "Download: $filename, Size: $fileSize", serverData)
 
                         // Serve the file
-                        parent.parent.contentResolver.openInputStream(contentUrl).use { stream ->
+                        parent.host.context.contentResolver.openInputStream(contentUrl).use { stream ->
                             // Perform operation on stream
                             val buf = ByteArray(65535)
                             var len : Int
@@ -1092,7 +1088,7 @@ class MeshTunnel(private var parent: MeshAgent, private var url: String, private
     /*
     private fun initializePeerConnectionFactory() {
         //Initialize PeerConnectionFactory globals.
-        val initializationOptions = PeerConnectionFactory.InitializationOptions.builder(parent.parent).createInitializationOptions()
+        val initializationOptions = PeerConnectionFactory.InitializationOptions.builder(parent.host.context).createInitializationOptions()
         PeerConnectionFactory.initialize(initializationOptions)
 
         //Create a new PeerConnectionFactory instance - using Hardware encoder and decoder.

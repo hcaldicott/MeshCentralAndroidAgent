@@ -44,9 +44,8 @@ class MeshUserInfo(userid: String, realname: String?, image: Bitmap?) {
     }
 }
 
-class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId: String) : WebSocketListener() {
-    val parent : MainActivity = parent
-    val host : String = host
+class MeshAgent(val host: MeshAgentHost, hostUrl: String, certHash: String, devGroupId: String) : WebSocketListener() {
+    private val hostName : String = hostUrl
     val serverCertHash: String = certHash
     val devGroupId: String = devGroupId
     var state : Int = 0 // 0 = Disconnected, 1 = Connecting, 2 = Authenticating, 3 = Connected
@@ -66,7 +65,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
     private val logTag = "MeshAgent"
 
     init {
-        //println("MeshAgent Constructor: ${host}, ${certHash}, $devGroupId")
+        //println("MeshAgent Constructor: ${hostName}, ${certHash}, $devGroupId")
     }
 
     fun Start() {
@@ -84,7 +83,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
     fun UpdateState(newState: Int) {
         if (newState != state) {
             state = newState
-            parent.agentStateChanged()
+            host.agentStateChanged()
         }
     }
 
@@ -123,7 +122,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
 
     fun startSocket() {
         _webSocket = getUnsafeOkHttpClient().newWebSocket(
-                Request.Builder().url("wss://$host/agent.ashx").build(),
+                Request.Builder().url("wss://$hostName/agent.ashx").build(),
                 this
         )
         //socketOkHttpClient.dispatcher.executorService.shutdown()
@@ -249,10 +248,10 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     var capabilities = 12      // Capabilities of the agent (bitmask): 1 = Desktop, 2 = Terminal, 4 = Files, 8 = Console, 16 = JavaScript
                     var deviceName: String? = null
                     if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S) {
-                    deviceName = Settings.Secure.getString(parent.contentResolver, "bluetooth_name")
+                        deviceName = Settings.Secure.getString(host.context.contentResolver, "bluetooth_name")
                     }
                     if (deviceName == null) {
-                        deviceName = Settings.Global.getString(parent.contentResolver, Settings.Global.DEVICE_NAME) ?: "UNKNOWN_DEVICE_NAME"
+                        deviceName = Settings.Global.getString(host.context.contentResolver, Settings.Global.DEVICE_NAME) ?: "UNKNOWN_DEVICE_NAME"
                     }
                     val deviceNameUtf = deviceName.toByteArray(Charsets.UTF_8)
                     //println("DeviceName: ${deviceName}")
@@ -312,7 +311,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
         sendServerImageRequest()
 
         if (g_autoConsent) {
-            parent.startProjection()
+            host.startProjection()
         }
 
         // Send battery state
@@ -321,7 +320,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
 
     // Cause some data to be sent over the websocket control channel every 2 minutes to keep it open
     private fun startConnectionTimer() {
-        parent.runOnUiThread {
+        host.runOnUiThread {
             connectionTimer = object: CountDownTimer(120000000, 120000) {
                 override fun onTick(millisUntilFinished: Long) {
                     if (sendNetworkUpdate(false) == false) { // See if we need to update network information
@@ -388,7 +387,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                         // Open the URL
                         var xurl = json.optString("url")
                         //println("Opening: $xurl")
-                        if ((xurl != null) && (parent.openUrl(xurl))) {
+                        if ((xurl != null) && (host.openUrl(xurl))) {
                             // Event to the server
                             var eventArgs = JSONArray()
                             eventArgs.put(xurl)
@@ -400,7 +399,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     var xurl = json.optString("url")
                     if (xurl != null) {
                         var getintent: Intent = Intent(Intent.ACTION_VIEW, Uri.parse(xurl))
-                        parent.startActivity(getintent)
+                        host.launchActivity(getintent)
                     }
                 }
                 "msg" -> {
@@ -436,10 +435,11 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
 
                             var url = json.getString("value")
                             if (url.startsWith("*/")) {
-                                var hostdns: String = host
-                                var i = host.indexOf('/') // If the hostname includes an extra domain, remove it.
+                                var hostdns: String = hostName
+                                val i = hostName.indexOf('/') // If the hostname includes an extra domain, remove it.
                                 if (i > 0) {
-                        hostdns = host.substring(0, i) }
+                                    hostdns = hostName.substring(0, i)
+                                }
                                 url = "wss://$hostdns" + url.substring(1)
                             }
                             val tunnel = MeshTunnel(this, url, json)
@@ -492,7 +492,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     }
 
                     // Notify of user information change
-                    parent.refreshInfo()
+                    host.refreshInfo()
                 }
                 "getServerImage" -> {
                     // Server title and image
@@ -512,7 +512,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
 
                     // Notify of user information change
                     if ((serverTitle != null) || (serverImage != null)) {
-                        parent.refreshInfo()
+                        host.refreshInfo()
                     }
                 }
                 else -> {
@@ -548,7 +548,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
     // Request user image and real name if needed
     fun sendUserImageRequest(userid: String) {
         if (userinfo.containsKey(userid)) {
-            parent.refreshInfo()
+            host.refreshInfo()
             return
         } else {
             userinfo[userid] = MeshUserInfo(userid, null, null)
@@ -573,7 +573,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
 
     fun removeTunnel(tunnel: MeshTunnel) {
         tunnels.remove(tunnel)
-        parent.refreshInfo()
+        host.refreshInfo()
     }
 
     fun sendNetworkUpdate(force: Boolean) : Boolean {
@@ -680,7 +680,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
     private fun getSysBatteryInfo() : JSONObject? {
         try {
             val batteryStatus: Intent? = IntentFilter(Intent.ACTION_BATTERY_CHANGED).let { ifilter ->
-                parent.applicationContext.registerReceiver(null, ifilter)
+                host.context.applicationContext.registerReceiver(null, ifilter)
             }
             val status: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
             val isCharging: Boolean = status == BatteryManager.BATTERY_STATUS_CHARGING
@@ -753,7 +753,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     logServerEventEx(18, eventArgs, "Displaying message box, title=" + splitCmd[2] + ", message=" + splitCmd[1], jsoncmd)
 
                     // Show the alert
-                    parent.showAlertMessage("Alert", splitCmd[1])
+                    host.showAlertMessage("Alert", splitCmd[1])
                     r = "Ok"
                 } else if (splitCmd.size > 2) {
                     // Event to the server
@@ -763,7 +763,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     logServerEventEx(18, eventArgs, "Displaying message box, title=" + splitCmd[2] + ", message=" + splitCmd[1], jsoncmd)
 
                     // Show the alert
-                    parent.showAlertMessage(splitCmd[2], splitCmd[1])
+                    host.showAlertMessage(splitCmd[2], splitCmd[1])
                     r = "Ok"
                 }
             }
@@ -772,7 +772,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                 if (splitCmd.size < 2) {
                     r = "Usage:\r\n  toast \"Message\""
                 } else if (splitCmd.size >= 2) {
-                    parent.showToastMessage(splitCmd[1])
+                    host.showToastMessage(splitCmd[1])
 
                     // Event to the server
                     var eventArgs = JSONArray()
@@ -787,7 +787,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     r = "Usage:\r\n  dial [phonenumber]"
                 } else if (splitCmd.size >= 2) {
                     var getintent: Intent = Intent(Intent.ACTION_VIEW, Uri.parse("tel:${splitCmd[1]}"))
-                    parent.startActivity(getintent)
+                    host.launchActivity(getintent)
                     r = "ok"
                 }
             }
@@ -824,7 +824,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                             // Open the URL
                             try {
                                 var getintent: Intent = Intent(Intent.ACTION_VIEW, Uri.parse(splitCmd[1]))
-                                parent.startActivity(getintent)
+                                host.launchActivity(getintent)
                                 r = "Ok"
                             } catch (ex: Exception) {
                                 r = "Error opening: ${splitCmd[1]}"
@@ -845,7 +845,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                             r = "Device is busy in QR code scanner"
                         } else {
                             // Open the URL
-                            if (parent.openUrl(splitCmd[1])) {
+                            if (host.openUrl(splitCmd[1])) {
                                 r = "Ok"
 
                                 // Event to the server
@@ -865,7 +865,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                 if (visibleScreen == 1) {
                     r = "Application is at main screen"
                 } else {
-                    parent.returnToMainScreen()
+                    host.returnToMainScreen()
                     r = "ok"
                 }
             }
@@ -892,7 +892,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
             "kvmstart" -> {
                 // Start remote desktop
                 if (g_ScreenCaptureService == null) {
-                    parent.startProjection()
+                    host.startProjection()
                     r = "ok"
                 } else {
                     r = "Already started"
@@ -901,7 +901,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
             "kvmstop" -> {
                 // Stop remote desktop
                 if (g_ScreenCaptureService != null) {
-                    parent.stopProjection()
+                    host.stopProjection()
                     r = "ok"
                 } else {
                     r = "Already stopped"
@@ -919,7 +919,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                     }
                     if ((t > 0) && (t <= 10000)) {
                         @Suppress("DEPRECATION")
-                        val v = parent.applicationContext
+                        val v = host.context.applicationContext
                                 .getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
                         if (v == null) {
                             r = "Not supported"
@@ -947,7 +947,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                 if (splitCmd.size < 2) {
                     r = "Usage:\r\n  flash [milliseconds]"
                 } else if (splitCmd.size >= 2) {
-                    var isFlashAvailable = parent.applicationContext.packageManager
+                    var isFlashAvailable = host.context.applicationContext.packageManager
                             .hasSystemFeature(PackageManager.FEATURE_CAMERA_FRONT)
                     if (!isFlashAvailable) {
                         r = "Flash not available"
@@ -958,7 +958,7 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                         } catch (e: Exception) {
                         }
                         if ((t > 0) && (t <= 10000)) {
-                            var mCameraManager = parent.applicationContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                            var mCameraManager = host.context.applicationContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
                             try {
                                 var mCameraId = mCameraManager.cameraIdList[0]
                                 mCameraManager.setTorchMode(mCameraId, true)
