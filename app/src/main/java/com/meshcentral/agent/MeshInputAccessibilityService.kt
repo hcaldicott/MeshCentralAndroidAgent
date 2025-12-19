@@ -3,7 +3,6 @@ package com.meshcentral.agent
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.app.UiAutomation
-import android.content.Context
 import android.content.res.Resources
 import android.graphics.Path
 import android.graphics.Point
@@ -21,6 +20,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.inputmethod.InputConnection
 import android.view.WindowManager
+import androidx.annotation.RequiresApi
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 
@@ -39,27 +39,11 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }.getOrNull()
     }
 
-    private val gesturePath = Path()
-    private var gestureStroke: GestureDescription.StrokeDescription? = null
-    private var lastGestureStartTime: Long = 0
-    private val gestureCallback = object : GestureResultCallback() {
-        override fun onCompleted(gestureDescription: GestureDescription?) {
-            if (BuildConfig.DEBUG) {
-                Log.d(logTag, "dispatchGesture completed")
-            }
-        }
-
-        override fun onCancelled(gestureDescription: GestureDescription?) {
-            if (BuildConfig.DEBUG) {
-                Log.d(logTag, "dispatchGesture cancelled")
-            }
-        }
-    }
-
     private val gesturesSupported: Boolean
         get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
     private val gestureContinuationSupported: Boolean
         get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+    private val gestureController: GestureController? = if (gesturesSupported) GestureController() else null
 
     private val pointerProperties = MotionEvent.PointerProperties().apply {
         id = 0
@@ -80,7 +64,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
     private var lastCursorX = 0
     private var lastCursorY = 0
     private var lastCursorUpdateTime = 0L
-    private val CURSOR_UPDATE_INTERVAL = 16L // ~60fps max update rate
+    private val cursorUpdateInterval = 16L // ~60fps max update rate
     private val cursorIdleRunnable = Runnable { snapCursorToLastPosition() }
     // Screen dimensions for coordinate scaling
     private var remoteScreenWidth = 0
@@ -106,7 +90,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
         remoteScreenHeight = Resources.getSystem().displayMetrics.heightPixels
 
         // Actual screen dimensions (full screen including system bars)
-        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val bounds = wm.currentWindowMetrics.bounds
             actualScreenWidth = bounds.width()
@@ -158,7 +142,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
     private fun initCursorOverlay() {
         mainHandler.post {
             try {
-                val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                val wm = getSystemService(WINDOW_SERVICE) as WindowManager
                 cursorView = InputPointerView(this).apply {
                     addToWindow(wm)
                     hide() // Start hidden until first mouse event
@@ -203,7 +187,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
 
         // Throttle updates during movement to prevent visual lag
         val now = SystemClock.uptimeMillis()
-        if (!forceUpdate && (now - lastCursorUpdateTime) < CURSOR_UPDATE_INTERVAL) {
+        if (!forceUpdate && (now - lastCursorUpdateTime) < cursorUpdateInterval) {
             return
         }
         lastCursorUpdateTime = now
@@ -231,6 +215,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    @Suppress("unused")
     fun showCursor() {
         mainHandler.post {
             cursorView?.show()
@@ -246,7 +231,8 @@ class MeshInputAccessibilityService : AccessibilityService() {
         if (Build.VERSION.SDK_INT < 34) {
             return false
         }
-        val connection = getInputMethod()?.currentInputConnection as? InputConnection ?: run {
+        val connection = getInputMethod()?.currentInputConnection as? InputConnection
+        if (connection == null) {
             if (BuildConfig.DEBUG) {
                 Log.d(logTag, "sendKeyViaInputConnection failed (no connection)")
             }
@@ -326,7 +312,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
                 if (BuildConfig.DEBUG) {
                     Log.d(logTag, "injectMouseMove (gesture) x=$x y=$y -> scaled($scaledX,$scaledY)")
                 }
-                continueStroke(scaledX, scaledY)
+                gestureController?.continueStroke(scaledX, scaledY)
             } else if (BuildConfig.DEBUG) {
                 Log.d(logTag, "injectMouseMove ignored (no button down) x=$x y=$y")
             }
@@ -350,8 +336,8 @@ class MeshInputAccessibilityService : AccessibilityService() {
             if (BuildConfig.DEBUG) {
                 Log.d(logTag, "injectMouseDown (gesture) x=$x y=$y -> scaled($scaledX,$scaledY)")
             }
-            startStroke(scaledX, scaledY)
-            continueStroke(scaledX, scaledY)
+            gestureController?.startStroke(scaledX, scaledY)
+            gestureController?.continueStroke(scaledX, scaledY)
             return
         }
         if (BuildConfig.DEBUG) {
@@ -375,7 +361,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
             if (BuildConfig.DEBUG) {
                 Log.d(logTag, "injectMouseUp (gesture) x=$x y=$y -> scaled($scaledX,$scaledY)")
             }
-            endStroke(scaledX, scaledY)
+            gestureController?.endStroke(scaledX, scaledY)
             pointerDown = false
             return
         }
@@ -417,78 +403,10 @@ class MeshInputAccessibilityService : AccessibilityService() {
             if (BuildConfig.DEBUG) {
                 Log.d(logTag, "injectMouseScroll (gesture) x=$x y=$y -> scaled($scaledX,$scaledY) delta=$scrollDelta")
             }
-            performScrollGesture(scaledX, scaledY, scrollDelta)
+            gestureController?.performScrollGesture(scaledX, scaledY, scrollDelta)
             return
         }
         dispatchMotionEvent(MotionEvent.ACTION_SCROLL, scaledX, scaledY, scrollY = scrollDelta.toFloat())
-    }
-
-    private fun startStroke(x: Int, y: Int) {
-        gesturePath.reset()
-        gesturePath.moveTo(x.toFloat(), y.toFloat())
-        lastGestureStartTime = SystemClock.elapsedRealtime()
-        gestureStroke = null
-    }
-
-    private fun continueStroke(x: Int, y: Int) {
-        gesturePath.lineTo(x.toFloat(), y.toFloat())
-        if (!gestureContinuationSupported) {
-            return
-        }
-        var duration = SystemClock.elapsedRealtime() - lastGestureStartTime
-        if (duration <= 0) duration = 1
-        gestureStroke = if (gestureStroke == null) {
-            GestureDescription.StrokeDescription(gesturePath, 0, duration, true)
-        } else {
-            gestureStroke?.continueStroke(gesturePath, 0, duration, true)
-        }
-        gestureStroke?.let { dispatchGestureStroke(it) }
-        lastGestureStartTime = SystemClock.elapsedRealtime()
-        gesturePath.reset()
-        gesturePath.moveTo(x.toFloat(), y.toFloat())
-    }
-
-    private fun endStroke(x: Int, y: Int) {
-        gesturePath.lineTo(x.toFloat(), y.toFloat())
-        var duration = SystemClock.elapsedRealtime() - lastGestureStartTime
-        if (duration <= 0) duration = 1
-        if (gestureContinuationSupported) {
-            gestureStroke = if (gestureStroke == null) {
-                GestureDescription.StrokeDescription(gesturePath, 0, duration, false)
-            } else {
-                gestureStroke?.continueStroke(gesturePath, 0, duration, false)
-            }
-            gestureStroke?.let { dispatchGestureStroke(it) }
-            gestureStroke = null
-        } else {
-            val stroke = GestureDescription.StrokeDescription(gesturePath, 0, duration)
-            dispatchGestureStroke(stroke)
-        }
-        gesturePath.reset()
-    }
-
-    private fun dispatchGestureStroke(stroke: GestureDescription.StrokeDescription) {
-        val builder = GestureDescription.Builder()
-        builder.addStroke(stroke)
-        if (BuildConfig.DEBUG) {
-            Log.d(logTag, "dispatchGesture stroke duration=${stroke.duration}")
-        }
-        dispatchGesture(builder.build(), gestureCallback, null)
-    }
-
-    private fun performScrollGesture(x: Int, y: Int, scrollDelta: Int) {
-        if (scrollDelta == 0) return
-        val displayMetrics = resources.displayMetrics
-        val height = displayMetrics.heightPixels.toFloat()
-        val startY = y.toFloat().coerceIn(0f, height)
-        val endY = (startY - scrollDelta).coerceIn(0f, height)
-        val path = Path().apply {
-            moveTo(x.toFloat(), startY)
-            lineTo(x.toFloat(), endY)
-        }
-        val duration = 200L
-        val stroke = GestureDescription.StrokeDescription(path, 0, duration)
-        dispatchGestureStroke(stroke)
     }
 
     private fun dispatchMotionEvent(
@@ -577,7 +495,7 @@ class MeshInputAccessibilityService : AccessibilityService() {
             val selectionEnd = node.textSelectionEnd.takeIf { it >= 0 } ?: selectionStart
             val typeInMiddle = selectionStart < existingText.length
             val newText = if (typeInMiddle) {
-                existingText.substring(0, selectionStart) + text + existingText.substring(selectionEnd)
+                existingText.take(selectionStart) + text + existingText.drop(selectionEnd)
             } else {
                 existingText + text
             }
@@ -604,16 +522,14 @@ class MeshInputAccessibilityService : AccessibilityService() {
                 } else if (!removeForward && selectionStart > 0) {
                     val updated = existingText.removeRange(selectionStart - 1, selectionStart)
                     updated to selectionStart - 1
-                } else if (removeForward && selectionEnd < existingText.length) {
+                } else if (removeForward) {
                     val updated = existingText.removeRange(selectionEnd, selectionEnd + 1)
                     updated to selectionEnd
                 } else {
                     existingText to selectionStart
                 }
             } else if (removeForward) {
-                if (selectionStart >= existingText.length) return@withFocusedEditableNode false
-                val updated = existingText.removeRange(selectionStart, selectionStart + 1)
-                updated to selectionStart
+                return@withFocusedEditableNode false
             } else {
                 val updated = existingText.removeRange(existingText.length - 1, existingText.length)
                 updated to existingText.length - 1
@@ -730,6 +646,95 @@ class MeshInputAccessibilityService : AccessibilityService() {
         passwordTexts[node.windowId] = PasswordText(text)
     }
 
+    @RequiresApi(Build.VERSION_CODES.N)
+    private inner class GestureController {
+        private val gesturePath = Path()
+        private var gestureStroke: GestureDescription.StrokeDescription? = null
+        private var lastGestureStartTime: Long = 0
+        private val gestureCallback = object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(logTag, "dispatchGesture completed")
+                }
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(logTag, "dispatchGesture cancelled")
+                }
+            }
+        }
+
+        fun startStroke(x: Int, y: Int) {
+            gesturePath.reset()
+            gesturePath.moveTo(x.toFloat(), y.toFloat())
+            lastGestureStartTime = SystemClock.elapsedRealtime()
+            gestureStroke = null
+        }
+
+        fun continueStroke(x: Int, y: Int) {
+            gesturePath.lineTo(x.toFloat(), y.toFloat())
+            if (!gestureContinuationSupported) {
+                return
+            }
+            var duration = SystemClock.elapsedRealtime() - lastGestureStartTime
+            if (duration <= 0) duration = 1
+            gestureStroke = if (gestureStroke == null) {
+                GestureDescription.StrokeDescription(gesturePath, 0, duration, true)
+            } else {
+                gestureStroke?.continueStroke(gesturePath, 0, duration, true)
+            }
+            gestureStroke?.let { dispatchGestureStroke(it) }
+            lastGestureStartTime = SystemClock.elapsedRealtime()
+            gesturePath.reset()
+            gesturePath.moveTo(x.toFloat(), y.toFloat())
+        }
+
+        fun endStroke(x: Int, y: Int) {
+            gesturePath.lineTo(x.toFloat(), y.toFloat())
+            var duration = SystemClock.elapsedRealtime() - lastGestureStartTime
+            if (duration <= 0) duration = 1
+            if (gestureContinuationSupported) {
+                gestureStroke = if (gestureStroke == null) {
+                    GestureDescription.StrokeDescription(gesturePath, 0, duration, false)
+                } else {
+                    gestureStroke?.continueStroke(gesturePath, 0, duration, false)
+                }
+                gestureStroke?.let { dispatchGestureStroke(it) }
+                gestureStroke = null
+            } else {
+                val stroke = GestureDescription.StrokeDescription(gesturePath, 0, duration)
+                dispatchGestureStroke(stroke)
+            }
+            gesturePath.reset()
+        }
+
+        fun performScrollGesture(x: Int, y: Int, scrollDelta: Int) {
+            if (scrollDelta == 0) return
+            val displayMetrics = resources.displayMetrics
+            val height = displayMetrics.heightPixels.toFloat()
+            val startY = y.toFloat().coerceIn(0f, height)
+            val endY = (startY - scrollDelta).coerceIn(0f, height)
+            val path = Path().apply {
+                moveTo(x.toFloat(), startY)
+                lineTo(x.toFloat(), endY)
+            }
+            val duration = 200L
+            val stroke = GestureDescription.StrokeDescription(path, 0, duration)
+            dispatchGestureStroke(stroke)
+        }
+
+        private fun dispatchGestureStroke(stroke: GestureDescription.StrokeDescription) {
+            val builder = GestureDescription.Builder()
+            builder.addStroke(stroke)
+            if (BuildConfig.DEBUG) {
+                Log.d(logTag, "dispatchGesture stroke duration=${stroke.duration}")
+            }
+            dispatchGesture(builder.build(), gestureCallback, null)
+        }
+    }
+
+    @Suppress("DEPRECATION")
     private fun findFocusableNodeRecursive(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
         if (node.isFocusable) return AccessibilityNodeInfo.obtain(node)
