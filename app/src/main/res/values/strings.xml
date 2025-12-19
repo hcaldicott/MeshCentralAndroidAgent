@@ -11,6 +11,7 @@
     <string name="clear_server">Clear Server</string>
     <string name="no_server_setup">No Server Setup</string>
     <string name="invalid_qrcode">Invalid QR code</string>
+    <string name="scanner_no_camera_available">Unable to start any camera for scanning. Returning to the main screen.</string>
     <string name="next">Next</string>
     <string name="previous">Previous</string>
     <string name="ok">OK</string>

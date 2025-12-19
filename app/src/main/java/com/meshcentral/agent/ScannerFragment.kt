@@ -1,6 +1,7 @@
 package com.meshcentral.agent
 
 import android.app.AlertDialog
+import android.hardware.Camera
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
@@ -14,13 +15,13 @@ import androidx.navigation.fragment.findNavController
 import com.budiyev.android.codescanner.CodeScanner
 import com.budiyev.android.codescanner.CodeScannerView
 import com.budiyev.android.codescanner.DecodeCallback
+import com.budiyev.android.codescanner.ErrorCallback
 import com.karumi.dexter.Dexter
 import com.karumi.dexter.PermissionToken
 import com.karumi.dexter.listener.PermissionDeniedResponse
 import com.karumi.dexter.listener.PermissionGrantedResponse
 import com.karumi.dexter.listener.PermissionRequest
 import com.karumi.dexter.listener.single.PermissionListener
-import java.util.jar.Manifest
 
 /**
  * A simple [Fragment] subclass as the second destination in the navigation.
@@ -30,6 +31,9 @@ class ScannerFragment : Fragment(), PermissionListener {
     private lateinit var codeScanner: CodeScanner
     var alert : AlertDialog? = null
     private val logTag = "ScannerFragment"
+    private val cameraCandidates = mutableListOf<Int>()
+    private var currentCameraIndex = 0
+    private var cameraErrorHandled = false
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -62,12 +66,18 @@ class ScannerFragment : Fragment(), PermissionListener {
                     lastToast?.setGravity(Gravity.CENTER, 0, 300)
                     lastToast?.setText(getString(R.string.invalid_qrcode))
                     lastToast?.show()
-                    codeScanner.startPreview()
+                    startPreviewForCurrentCamera(resetIndex = false)
                 }
             }
         }
+        codeScanner.errorCallback = ErrorCallback { throwable ->
+            Log.e(logTag, "Camera error on index $currentCameraIndex", throwable)
+            activity.runOnUiThread {
+                moveToNextCameraOrFail(throwable)
+            }
+        }
         scannerView.setOnClickListener {
-            codeScanner.startPreview()
+            startPreviewForCurrentCamera(resetIndex = false)
         }
     }
 
@@ -83,6 +93,8 @@ class ScannerFragment : Fragment(), PermissionListener {
     override fun onResume() {
         Log.d(logTag, "onResume")
         super.onResume()
+        cameraErrorHandled = false
+        refreshCameraCandidates()
         Dexter.withContext(context)
             .withPermission(android.Manifest.permission.CAMERA)
             .withListener(this)
@@ -116,14 +128,14 @@ class ScannerFragment : Fragment(), PermissionListener {
             findNavController().navigate(R.id.action_SecondFragment_to_FirstFragment)
         }
         builder.setNeutralButton(android.R.string.cancel) { _, _ ->
-            codeScanner.startPreview()
+            startPreviewForCurrentCamera(resetIndex = false)
         }
         alert = builder.show()
     }
 
     override fun onPermissionGranted(p0: PermissionGrantedResponse?) {
         Log.d(logTag, "onPermissionGranted")
-        codeScanner.startPreview()
+        startPreviewForCurrentCamera(resetIndex = true)
     }
 
     override fun onPermissionRationaleShouldBeShown(p0: PermissionRequest?, p1: PermissionToken?) {
@@ -138,6 +150,88 @@ class ScannerFragment : Fragment(), PermissionListener {
 
     fun exit() {
         findNavController().navigate(R.id.action_SecondFragment_to_FirstFragment)
+    }
+
+    private fun startPreviewForCurrentCamera(resetIndex: Boolean) {
+        if (!::codeScanner.isInitialized) {
+            return
+        }
+        if (resetIndex) {
+            currentCameraIndex = 0
+        }
+        if (cameraCandidates.isEmpty()) {
+            refreshCameraCandidates()
+        }
+        val cameraId = cameraCandidates.getOrNull(currentCameraIndex)
+        if (cameraId == null) {
+            handleCameraSetupFailure(null)
+            return
+        }
+        try {
+            codeScanner.camera = cameraId
+            codeScanner.startPreview()
+            Log.d(logTag, "Started preview with cameraId=$cameraId (index=$currentCameraIndex)")
+        } catch (ex: Exception) {
+            Log.w(logTag, "Unable to start preview on cameraId=$cameraId", ex)
+            moveToNextCameraOrFail(ex)
+        }
+    }
+
+    private fun moveToNextCameraOrFail(error: Throwable?) {
+        currentCameraIndex++
+        if (currentCameraIndex < cameraCandidates.size) {
+            startPreviewForCurrentCamera(resetIndex = false)
+        } else {
+            handleCameraSetupFailure(error)
+        }
+    }
+
+    private fun handleCameraSetupFailure(error: Throwable?) {
+        if (cameraErrorHandled) {
+            return
+        }
+        cameraErrorHandled = true
+        Log.e(logTag, "Unable to start any available camera", error)
+        if (!isAdded) {
+            return
+        }
+        lastToast?.cancel()
+        lastToast = Toast.makeText(requireContext(), getString(R.string.scanner_no_camera_available), Toast.LENGTH_LONG)
+        lastToast?.show()
+        findNavController().navigate(R.id.action_SecondFragment_to_FirstFragment)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun refreshCameraCandidates() {
+        cameraCandidates.clear()
+        val back = mutableListOf<Int>()
+        val front = mutableListOf<Int>()
+        val others = mutableListOf<Int>()
+        val count = try {
+            Camera.getNumberOfCameras()
+        } catch (ex: Exception) {
+            Log.e(logTag, "Unable to enumerate cameras", ex)
+            0
+        }
+        for (cameraId in 0 until count) {
+            val info = Camera.CameraInfo()
+            try {
+                Camera.getCameraInfo(cameraId, info)
+                when (info.facing) {
+                    Camera.CameraInfo.CAMERA_FACING_BACK -> back.add(cameraId)
+                    Camera.CameraInfo.CAMERA_FACING_FRONT -> front.add(cameraId)
+                    else -> others.add(cameraId)
+                }
+            } catch (ex: Exception) {
+                Log.w(logTag, "Unable to read camera info for id $cameraId", ex)
+                others.add(cameraId)
+            }
+        }
+        cameraCandidates.addAll(back)
+        cameraCandidates.addAll(front)
+        cameraCandidates.addAll(others)
+        currentCameraIndex = 0
+        Log.d(logTag, "Camera candidate order: $cameraCandidates")
     }
 
     fun isMshStringValid(x:String):Boolean {

@@ -10,6 +10,7 @@
     <string name="clear_server">Server entfernen</string>
     <string name="no_server_setup">Kein Server-Setup</string>
     <string name="invalid_qrcode">Ungültiger QR-Code</string>
+    <string name="scanner_no_camera_available">Keine verfügbare Kamera für den Scan gefunden. Zurück zum Hauptbildschirm.</string>
     <string name="next">Weiter</string>
     <string name="previous">Zurück</string>
     <string name="ok">OK</string>
