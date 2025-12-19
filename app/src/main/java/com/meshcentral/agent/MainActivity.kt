@@ -24,7 +24,6 @@ import android.os.CountDownTimer
 import android.os.PowerManager
 import android.provider.Settings
 import android.text.InputType
-import android.util.Base64
 import android.util.Log
 import android.view.Gravity
 import android.view.Menu
@@ -40,25 +39,10 @@ import androidx.core.content.ContextCompat
 import androidx.preference.PreferenceManager
 import com.google.firebase.messaging.FirebaseMessaging
 import org.json.JSONObject
-import org.spongycastle.asn1.x500.X500Name
-import org.spongycastle.cert.X509v3CertificateBuilder
-import org.spongycastle.cert.jcajce.JcaX509CertificateConverter
-import org.spongycastle.cert.jcajce.JcaX509v3CertificateBuilder
 import org.spongycastle.jce.provider.BouncyCastleProvider
-import org.spongycastle.operator.jcajce.JcaContentSignerBuilder
-import java.io.ByteArrayInputStream
-import java.math.BigInteger
-import java.security.KeyFactory
-import java.security.KeyPairGenerator
 import java.security.PrivateKey
-import java.security.SecureRandom
 import java.security.Security
-import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
-import java.security.spec.PKCS8EncodedKeySpec
-import java.util.Date
-import java.util.Random
-import kotlin.math.absoluteValue
 
 
 // You can hardcode a server connection string into this application by setting this string.
@@ -590,48 +574,7 @@ class MainActivity : AppCompatActivity(), MeshAgentHost {
         if ((meshAgent == null) && (serverLink != null)) {
             // Create and connect the agent
             requestAllPermissions()
-            if (agentCertificate == null) {
-                val sharedPreferences = getSharedPreferences("meshagent", Context.MODE_PRIVATE)
-                val certb64 : String? = sharedPreferences?.getString("agentCert", null)
-                val keyb64 : String? = sharedPreferences?.getString("agentKey", null)
-                if ((certb64 == null) || (keyb64 == null)) {
-                    //println("Generating new certificates...")
-
-                    // Generate an RSA key pair
-                    val keyGen = KeyPairGenerator.getInstance("RSA")
-                    keyGen.initialize(2048, SecureRandom())
-                    val keypair = keyGen.generateKeyPair()
-
-                    // Generate Serial Number
-                    var serial = BigInteger("12345678")
-                    try { serial = BigInteger.valueOf(Random().nextInt().toLong().absoluteValue) } catch (_: Exception) {}
-
-                    // Create self signed certificate
-                    val builder: X509v3CertificateBuilder = JcaX509v3CertificateBuilder(
-                            X500Name("CN=android.agent.meshcentral.com"), // issuer authority
-                            serial, // serial number of certificate
-                            Date(System.currentTimeMillis() - 86400000L * 365), // start of validity
-                            Date(253402300799000L), // end of certificate validity
-                            X500Name("CN=android.agent.meshcentral.com"), // subject name of certificate
-                            keypair.public) // public key of certificate
-                    agentCertificate = JcaX509CertificateConverter().setProvider("SC").getCertificate(builder
-                            .build(JcaContentSignerBuilder("SHA256withRSA").build(keypair.private))) // Private key of signing authority , here it is self signed
-                    agentCertificateKey = keypair.private
-
-                    // Save the certificate and key
-                    sharedPreferences?.edit()?.putString("agentCert", Base64.encodeToString(agentCertificate?.encoded, Base64.DEFAULT))?.apply()
-                    sharedPreferences?.edit()?.putString("agentKey", Base64.encodeToString(agentCertificateKey?.encoded, Base64.DEFAULT))?.apply()
-                } else {
-                    //println("Loading certificates...")
-                    agentCertificate = CertificateFactory.getInstance("X509").generateCertificate(
-                            ByteArrayInputStream(Base64.decode(certb64, Base64.DEFAULT))
-                    ) as X509Certificate
-                    val keySpec = PKCS8EncodedKeySpec(Base64.decode(keyb64, Base64.DEFAULT))
-                    agentCertificateKey = KeyFactory.getInstance("RSA").generatePrivate(keySpec)
-                }
-                //println("Cert: ${agentCertificate.toString()}")
-                //println("XKey: ${agentCertificateKey.toString()}")
-            }
+            AgentCertificateManager.ensureAgentCertificate(this)
 
             if (!userInitiated) {
                 meshAgent = MeshAgent(this, getServerHost()!!, getServerHash()!!, getDevGroup()!!)

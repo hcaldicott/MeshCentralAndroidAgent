@@ -12,30 +12,13 @@ import android.os.CountDownTimer
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.util.Base64
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.preference.PreferenceManager
-import org.spongycastle.asn1.x500.X500Name
-import org.spongycastle.cert.X509v3CertificateBuilder
-import org.spongycastle.cert.jcajce.JcaX509CertificateConverter
-import org.spongycastle.cert.jcajce.JcaX509v3CertificateBuilder
 import org.spongycastle.jce.provider.BouncyCastleProvider
-import org.spongycastle.operator.jcajce.JcaContentSignerBuilder
-import java.io.ByteArrayInputStream
 import java.lang.Exception
-import java.math.BigInteger
-import java.util.Random
-import java.security.KeyFactory
-import java.security.KeyPairGenerator
 import java.security.Security
-import java.security.SecureRandom
-import java.security.cert.CertificateFactory
-import java.security.cert.X509Certificate
-import java.security.spec.PKCS8EncodedKeySpec
-import java.util.Date
-import kotlin.math.absoluteValue
 
 private const val NOTIFICATION_ID = 2001
 private const val SERVICE_CHANNEL_ID = "MeshAgentServiceChannel"
@@ -128,7 +111,7 @@ class MeshAgentService : Service(), MeshAgentHost {
         val group = getDevGroupFromLink(serverLink)
         if ((host == null) || (hash == null) || (group == null)) return
 
-        ensureAgentCertificate()
+        AgentCertificateManager.ensureAgentCertificate(this)
 
         meshAgent = MeshAgent(this, host, hash, group)
         meshAgent?.Start()
@@ -138,45 +121,6 @@ class MeshAgentService : Service(), MeshAgentHost {
         if (meshAgent != null) {
             meshAgent?.Stop()
             meshAgent = null
-        }
-    }
-
-    private fun ensureAgentCertificate() {
-        if ((agentCertificate != null) && (agentCertificateKey != null)) return
-
-        val sharedPreferences = getSharedPreferences("meshagent", Context.MODE_PRIVATE)
-        val certb64 = sharedPreferences?.getString("agentCert", null)
-        val keyb64 = sharedPreferences?.getString("agentKey", null)
-
-        if ((certb64 == null) || (keyb64 == null)) {
-            val keyGen = KeyPairGenerator.getInstance("RSA")
-            keyGen.initialize(2048, SecureRandom())
-            val keypair = keyGen.generateKeyPair()
-
-            var serial = BigInteger("12345678")
-            try { serial = BigInteger.valueOf(Random().nextInt().toLong().absoluteValue) } catch (ex: Exception) { }
-
-            val builder = JcaX509v3CertificateBuilder(
-                X500Name("CN=android.agent.meshcentral.com"),
-                serial,
-                Date(System.currentTimeMillis() - 86400000L * 365),
-                Date(253402300799000L),
-                X500Name("CN=android.agent.meshcentral.com"),
-                keypair.public
-            )
-            agentCertificate = JcaX509CertificateConverter().setProvider("SC").getCertificate(
-                builder.build(JcaContentSignerBuilder("SHA256withRSA").build(keypair.private))
-            )
-            agentCertificateKey = keypair.private
-
-            sharedPreferences?.edit()?.putString("agentCert", Base64.encodeToString(agentCertificate?.encoded, Base64.DEFAULT))?.apply()
-            sharedPreferences?.edit()?.putString("agentKey", Base64.encodeToString(agentCertificateKey?.encoded, Base64.DEFAULT))?.apply()
-        } else {
-            agentCertificate = CertificateFactory.getInstance("X509").generateCertificate(
-                ByteArrayInputStream(Base64.decode(certb64, Base64.DEFAULT))
-            ) as X509Certificate
-            val keySpec = PKCS8EncodedKeySpec(Base64.decode(keyb64, Base64.DEFAULT))
-            agentCertificateKey = KeyFactory.getInstance("RSA").generatePrivate(keySpec)
         }
     }
 
