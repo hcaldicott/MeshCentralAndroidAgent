@@ -569,42 +569,19 @@ class MainActivity : AppCompatActivity(), MeshAgentHost {
         }
     }
 
-    fun toggleAgentConnection(userInitiated : Boolean) {
-        //println("toggleAgentConnection")
-        if ((meshAgent == null) && (serverLink != null)) {
-            // Create and connect the agent
-            requestAllPermissions()
-            AgentCertificateManager.ensureAgentCertificate(this)
+    private fun startAgentServiceAction(action: String) {
+        MeshAgentService.requestAction(this, action)
+    }
 
-            if (!userInitiated) {
-                meshAgent = MeshAgent(this, getServerHost()!!, getServerHash()!!, getDevGroup()!!)
-                meshAgent?.Start()
-            } else {
-                if (g_autoConnect) {
-                    if (g_userDisconnect) {
-                        // We are not trying to connect, switch to connecting
-                        g_userDisconnect = false
-                        meshAgent =
-                            MeshAgent(this, getServerHost()!!, getServerHash()!!, getDevGroup()!!)
-                        meshAgent?.Start()
-                    } else {
-                        // We are trying to connect, switch to not trying
-                        g_userDisconnect = true
-                    }
-                } else {
-                    // We are not in auto connect mode, try to connect
-                    g_userDisconnect = true
-                    meshAgent =
-                        MeshAgent(this, getServerHost()!!, getServerHash()!!, getDevGroup()!!)
-                    meshAgent?.Start()
-                }
-            }
+    fun toggleAgentConnection(userInitiated : Boolean) {
+        if ((meshAgent == null) && (serverLink != null)) {
+            requestAllPermissions()
+            g_userDisconnect = false
+            startAgentServiceAction(MeshAgentService.ACTION_USER_CONNECT)
         } else if (meshAgent != null) {
-            // Stop the agent
             if (userInitiated) { g_userDisconnect = true }
             stopProjection()
-            meshAgent?.Stop()
-            meshAgent = null
+            startAgentServiceAction(MeshAgentService.ACTION_USER_DISCONNECT)
         }
         mainFragment?.refreshInfo()
     }

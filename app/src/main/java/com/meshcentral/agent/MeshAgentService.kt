@@ -15,6 +15,7 @@ import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.preference.PreferenceManager
 import org.spongycastle.jce.provider.BouncyCastleProvider
 import java.lang.Exception
@@ -32,6 +33,19 @@ class MeshAgentService : Service(), MeshAgentHost {
             Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME)
             Security.insertProviderAt(BouncyCastleProvider(), 1)
         }
+        const val ACTION_USER_CONNECT = "com.meshcentral.agent.action.USER_CONNECT"
+        const val ACTION_USER_DISCONNECT = "com.meshcentral.agent.action.USER_DISCONNECT"
+
+        fun requestAction(context: Context, action: String) {
+            val intent = Intent(context, MeshAgentService::class.java).apply {
+                this.action = action
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(context, intent)
+            } else {
+                context.startService(intent)
+            }
+        }
     }
 
     override val context: Context
@@ -47,15 +61,35 @@ class MeshAgentService : Service(), MeshAgentHost {
         refreshPreferences()
         ensureServerLink()
 
-        if (g_autoConnect && !g_userDisconnect) {
-            startMeshAgentConnection()
-            startRetryTimer()
-        } else {
-            stopMeshAgentConnection()
-            stopRetryTimer()
+        if (!handleServiceAction(intent)) {
+            if (g_autoConnect && !g_userDisconnect) {
+                startMeshAgentConnection()
+                startRetryTimer()
+            } else {
+                stopMeshAgentConnection()
+                stopRetryTimer()
+            }
         }
 
         return START_STICKY
+    }
+
+    private fun handleServiceAction(intent: Intent?): Boolean {
+        return when (intent?.action) {
+            ACTION_USER_CONNECT -> {
+                g_userDisconnect = false
+                startMeshAgentConnection()
+                startRetryTimer()
+                true
+            }
+            ACTION_USER_DISCONNECT -> {
+                g_userDisconnect = true
+                stopMeshAgentConnection()
+                stopRetryTimer()
+                true
+            }
+            else -> false
+        }
     }
 
     override fun onDestroy() {
@@ -103,8 +137,6 @@ class MeshAgentService : Service(), MeshAgentHost {
     private fun startMeshAgentConnection() {
         if (meshAgent != null) return
         if (serverLink == null) { return }
-        if (g_userDisconnect) return
-        g_userDisconnect = false
 
         val host = getServerHostFromLink(serverLink)
         val hash = getServerHashFromLink(serverLink)
@@ -149,6 +181,11 @@ class MeshAgentService : Service(), MeshAgentHost {
 
     override fun agentStateChanged() {
         Log.d("MeshAgentService", "Agent state changed: ${meshAgent?.state}")
+        mainHandler.post {
+            g_mainActivity?.runOnUiThread {
+                mainFragment?.refreshInfo()
+            }
+        }
     }
 
     override fun refreshInfo() {
