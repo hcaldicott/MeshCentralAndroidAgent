@@ -25,9 +25,19 @@ import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Accessibility service that bridges remote desktop input with Android input APIs.
- * It keeps a cursor overlay, handles coordinate scaling, and abstracts gesture vs. motion paths
- * so mouse and keyboard events from the MeshCentral tunnel can be injected consistently.
+ * Accessibility service that bridges remote desktop input coming from MeshCentral with Android.
+ *
+ * The service keeps a floating cursor overlay so the remote mouse state is visible, translates
+ * coordinates between the remote desktop and the Android display, and feeds input events into
+ * Android via gestures (when the API supports it) or with raw touch/motion events. The service
+ * also tracks the focused editable node so keyboard input can be injected or selection moved
+ * without relying on accessibility event callbacks.
+ *
+ * Gesture usage is guarded behind API checks: API 24+ paths use `GestureDescription` and
+ * `dispatchGesture`, while older devices fall back to synthesizing `MotionEvent`s through
+ * `dispatchMotionEvent`. Node traversal helpers respect focus and selection semantics (the service
+ * never explores other windows) and always stays within privacy guidelines since it only operates
+ * on the active window with implicit user consent from enabling the accessibility service.
  */
 class MeshInputAccessibilityService : AccessibilityService() {
     private val logTag = "MeshInputAccessibilityService"
@@ -108,10 +118,6 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
-    // Scale coordinates from remote space to actual screen space
-    // Two scalings are involved:
-    // 1. Desktop scaling (g_desktop_scalingLevel): remote sends coords in scaled image space
-    // 2. System bar scaling: displayMetrics vs actual full screen
     /**
      * Translate coordinates from the remote desktop into the device's native screen space.
      * First undo the remote desktop scaling factor, then adjust for the difference between
@@ -139,6 +145,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         return Pair(scaledX, scaledY)
     }
 
+    /**
+     * Sets up the floating cursor overlay off the main thread so remote pointer updates are visible.
+     */
     private fun initCursorOverlay() {
         mainHandler.post {
             try {
@@ -158,14 +167,21 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * This service does not rely on accessibility event streams, so ignore them.
+     */
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // We don't need to track accessibility events when focusing nodes directly from the active window tree.
     }
 
+    /**
+     * AccessibilityService requires implementing onInterrupt even if it is a no-op.
+     */
     override fun onInterrupt() {
-        // No-op
     }
 
+    /**
+     * Clears shared state when the service is torn down.
+     */
     override fun onDestroy() {
         instance = null
         passwordTexts.clear()
@@ -176,6 +192,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
+    /**
+     * Updates the overlay cursor position while throttling for smoother movement.
+     */
     private fun updateCursorPosition(x: Int, y: Int, forceUpdate: Boolean = false) {
         // Store the last position for snapping
         lastCursorX = x
@@ -202,6 +221,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Forces the overlay cursor to the last known coordinates (used when mouse movement stops).
+     */
     private fun snapCursorToLastPosition() {
         // Called when mouse movement stops - force update to final position
         mainHandler.post {
@@ -209,6 +231,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Hides the overlay cursor asynchronously.
+     */
     fun hideCursor() {
         mainHandler.post {
             cursorView?.hide()
@@ -216,16 +241,25 @@ class MeshInputAccessibilityService : AccessibilityService() {
     }
 
     @Suppress("unused")
+    /**
+     * Shows the overlay cursor asynchronously.
+     */
     fun showCursor() {
         mainHandler.post {
             cursorView?.show()
         }
     }
 
+    /**
+     * Enables/disables input injection when remote control should ignore input.
+     */
     fun setRemoteInputLocked(locked: Boolean) {
         remoteInputLocked = locked
     }
 
+    /**
+     * Tries to dispatch a key via the current `InputConnection`, which is only supported on API 34+.
+     */
     @Suppress("NewApi")
     private fun sendKeyViaInputConnection(keyEvent: KeyEvent): Boolean {
         if (Build.VERSION.SDK_INT < 34) {
@@ -297,6 +331,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Moves the remote cursor and injects mouse move/hover events (gestures when available).
+     */
     fun injectMouseMove(x: Int, y: Int) {
         updateCursorPosition(x, y)
         if (remoteInputLocked) {
@@ -321,6 +358,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         dispatchMotionEvent(if (pointerDown) MotionEvent.ACTION_MOVE else MotionEvent.ACTION_HOVER_MOVE, scaledX, scaledY)
     }
 
+    /**
+     * Injects a mouse-down event, starting a gesture or pointer down sequence.
+     */
     fun injectMouseDown(x: Int, y: Int) {
         updateCursorPosition(x, y, forceUpdate = true)
         if (remoteInputLocked) {
@@ -347,6 +387,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         pointerDownTime = SystemClock.uptimeMillis()
     }
 
+    /**
+     * Injects the corresponding mouse-up event for the current pointer.
+     */
     fun injectMouseUp(x: Int, y: Int) {
         updateCursorPosition(x, y, forceUpdate = true)
         if (remoteInputLocked) {
@@ -373,6 +416,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         pointerDownTime = 0
     }
 
+    /**
+     * Synthetically performs a double-click via sequential down/up events.
+     */
     fun injectMouseDoubleClick(x: Int, y: Int) {
         if (remoteInputLocked) {
             if (BuildConfig.DEBUG) {
@@ -389,6 +435,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         injectMouseUp(x, y)
     }
 
+    /**
+     * Sends a scroll gesture or motion event based on the configured gesture availability.
+     */
     fun injectMouseScroll(x: Int, y: Int, scrollDelta: Int) {
         updateCursorPosition(x, y, forceUpdate = true)
         if (remoteInputLocked) {
@@ -409,6 +458,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         dispatchMotionEvent(MotionEvent.ACTION_SCROLL, scaledX, scaledY, scrollY = scrollDelta.toFloat())
     }
 
+    /**
+     * Injects synthesized motion events when gestures are not available or for hover events.
+     */
     private fun dispatchMotionEvent(
         action: Int,
         x: Int,
@@ -455,6 +507,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Uses reflection to grab the internal `UiAutomation` instance from `AccessibilityService`.
+     */
     private fun getUiAutomation(): UiAutomation? {
         val getter = uiAutomationGetter ?: return null
         return try {
@@ -464,6 +519,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Intercepts navigation keys from accessibility before they enter the focused node.
+     */
     private fun handleAccessibilityKeyEvent(keyEvent: KeyEvent): Boolean {
         if (keyEvent.action != KeyEvent.ACTION_DOWN) return false
         return when (keyEvent.keyCode) {
@@ -488,6 +546,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Inserts text at the current focus, replacing any selection and keeping cursor state updated.
+     */
     private fun enterText(text: String): Boolean {
         return withFocusedEditableNode { node ->
             val existingText = getExistingText(node)?.toString() ?: ""
@@ -508,6 +569,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Removes a character before or after the cursor depending on `removeForward`.
+     */
     private fun removeCharacterAtCursor(removeForward: Boolean): Boolean {
         return withFocusedEditableNode { node ->
             val existingText = getExistingText(node)?.toString() ?: return@withFocusedEditableNode false
@@ -542,6 +606,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Moves the cursor or selection based on arrow/home/end commands.
+     */
     private fun moveCursor(command: String): Boolean {
         return withFocusedEditableNode { node ->
             val existingText = getExistingText(node)?.toString() ?: return@withFocusedEditableNode false
@@ -561,6 +628,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Advances accessibility focus to the next focusable node in the tree.
+     */
     private fun moveFocusForward(): Boolean {
         val root = rootInActiveWindow ?: return false
         val focusable = findFocusableNodeRecursive(root)
@@ -572,6 +642,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         } ?: false
     }
 
+    /**
+     * Performs the enter action on the focused node, preferring IME enter when available.
+     */
     private fun handleEnterKey(): Boolean {
         return withFocusedEditableNode { node ->
             val actions = node.actionList
@@ -586,6 +659,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Replaces the node text via `ACTION_SET_TEXT` and updates cursor position afterwards.
+     */
     private fun replaceTextInNode(node: AccessibilityNodeInfo, newText: String, cursorPos: Int): Boolean {
         val args = Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
@@ -597,6 +673,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         return result
     }
 
+    /**
+     * Sets the selection/cursor position on an editable node.
+     */
     private fun setSelection(node: AccessibilityNodeInfo, position: Int, maxLength: Int? = null): Boolean {
         val safeMax = maxLength ?: (node.text?.length ?: 0)
         val clamped = position.coerceIn(0, safeMax)
@@ -611,6 +690,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         return result
     }
 
+    /**
+     * Runs `block` on the currently focused editable node, if any.
+     */
     private inline fun withFocusedEditableNode(block: (AccessibilityNodeInfo) -> Boolean): Boolean {
         val root = rootInActiveWindow ?: return false
         val focusNode = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
@@ -623,6 +705,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Reads the node text while hiding hints and respecting password caching.
+     */
     private fun getExistingText(node: AccessibilityNodeInfo): CharSequence? {
         if (node.isPassword) {
             val text = node.text
@@ -642,10 +727,16 @@ class MeshInputAccessibilityService : AccessibilityService() {
         return existing
     }
 
+    /**
+     * Tracks password text off-screen so it can be restored without exposing it.
+     */
     private fun savePasswordText(node: AccessibilityNodeInfo, text: String) {
         passwordTexts[node.windowId] = PasswordText(text)
     }
 
+    /**
+     * Encapsulates gesture-based mouse injection for API 24+.
+     */
     @RequiresApi(Build.VERSION_CODES.N)
     private inner class GestureController {
         private val gesturePath = Path()
@@ -665,6 +756,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
             }
         }
 
+        /**
+         * Begins a gesture stroke at (x, y).
+         */
         fun startStroke(x: Int, y: Int) {
             gesturePath.reset()
             gesturePath.moveTo(x.toFloat(), y.toFloat())
@@ -672,6 +766,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
             gestureStroke = null
         }
 
+        /**
+         * Extends the gesture stroke, optionally continuing for devices with API 26+.
+         */
         fun continueStroke(x: Int, y: Int) {
             gesturePath.lineTo(x.toFloat(), y.toFloat())
             if (!gestureContinuationSupported) {
@@ -690,6 +787,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
             gesturePath.moveTo(x.toFloat(), y.toFloat())
         }
 
+        /**
+         * Ends the current gesture stroke and dispatches it.
+         */
         fun endStroke(x: Int, y: Int) {
             gesturePath.lineTo(x.toFloat(), y.toFloat())
             var duration = SystemClock.elapsedRealtime() - lastGestureStartTime
@@ -709,6 +809,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
             gesturePath.reset()
         }
 
+        /**
+         * Dispatches a vertical scroll path as a gesture stroke.
+         */
         fun performScrollGesture(x: Int, y: Int, scrollDelta: Int) {
             if (scrollDelta == 0) return
             val displayMetrics = resources.displayMetrics
@@ -724,6 +827,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
             dispatchGestureStroke(stroke)
         }
 
+        /**
+         * Builds and sends the gesture description to the accessibility service.
+         */
         private fun dispatchGestureStroke(stroke: GestureDescription.StrokeDescription) {
             val builder = GestureDescription.Builder()
             builder.addStroke(stroke)
@@ -734,6 +840,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Recursively finds the first focusable node in the subtree.
+     */
     @Suppress("DEPRECATION")
     private fun findFocusableNodeRecursive(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
@@ -749,6 +858,9 @@ class MeshInputAccessibilityService : AccessibilityService() {
         return null
     }
 
+    /**
+     * Tracks obfuscated password text along with the last update time.
+     */
     private data class PasswordText(val text: String, val timestamp: Long = System.currentTimeMillis()) {
         fun isExpired(): Boolean = timestamp < System.currentTimeMillis() - 300_000
     }
