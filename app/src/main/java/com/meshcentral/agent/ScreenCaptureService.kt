@@ -567,10 +567,11 @@ class ScreenCaptureService : Service() {
         }
         if (desktopTunnelCloud == 0) {
             resetTileState() // clear CRCs when all tunnels close so next viewer gets full image
-            // If there are no more desktop tunnels, stop projection
-            if (!g_autoConsent) {
-                g_mainActivity?.stopProjection()
-            }
+            // If there are no more desktop tunnels, stop projection.
+            // Always stop when remote user disconnects - projection will restart on-demand
+            // when a new remote desktop session is requested.
+            stopProjection()
+            stopSelf()
         }
     }
 
