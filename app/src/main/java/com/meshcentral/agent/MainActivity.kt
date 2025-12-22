@@ -710,7 +710,9 @@ class MainActivity : AppCompatActivity(), MeshAgentHost {
                     toggleAgentConnection(false)
                 }
             }
-            if (g_autoConsent) {
+            // When PROJECT_MEDIA is pre-allowed (via adb/MDM), skip auto-starting projection.
+            // The app will wait for a remote desktop request to start projection on-demand.
+            if (g_autoConsent && !isProjectMediaAllowed(this)) {
                 startProjection()
             } else if (!g_autoConsent && g_ScreenCaptureService != null) {
                 stopProjection()

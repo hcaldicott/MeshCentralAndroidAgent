@@ -310,8 +310,15 @@ class MeshAgent(val host: MeshAgentHost, hostUrl: String, certHash: String, devG
         sendNetworkUpdate(false)
         sendServerImageRequest()
 
-        if (g_autoConsent) {
+        // When PROJECT_MEDIA is pre-allowed (via adb/MDM), skip auto-starting projection.
+        // The app will wait for a remote desktop request to start projection on-demand.
+        val projectMediaAllowed = isProjectMediaAllowed(host.context)
+        if (BuildConfig.DEBUG) Log.d(logTag, "connectHandler: g_autoConsent=$g_autoConsent, projectMediaAllowed=$projectMediaAllowed")
+        if (g_autoConsent && !projectMediaAllowed) {
+            if (BuildConfig.DEBUG) Log.d(logTag, "connectHandler: Starting projection (PROJECT_MEDIA not pre-allowed)")
             host.startProjection()
+        } else if (g_autoConsent && projectMediaAllowed) {
+            if (BuildConfig.DEBUG) Log.d(logTag, "connectHandler: Skipping auto-projection (PROJECT_MEDIA is pre-allowed)")
         }
 
         // Send battery state
