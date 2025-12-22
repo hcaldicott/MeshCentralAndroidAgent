@@ -338,14 +338,12 @@ class ScreenCaptureService : Service() {
     private inner class MediaProjectionStopCallback : MediaProjection.Callback() {
         override fun onStop() {
             //Log.e(ScreenCaptureService.Companion.TAG, "stopping projection.")
-            if (mHandler != null) {
-                mHandler!!.post {
-                    if (mVirtualDisplay != null) mVirtualDisplay!!.release()
-                    if (mImageReader != null) mImageReader!!.setOnImageAvailableListener(null, null)
-                    if (mOrientationChangeCallback != null) mOrientationChangeCallback!!.disable()
-                    mMediaProjection!!.unregisterCallback(this@MediaProjectionStopCallback)
-                    cleanupAfterProjectionStop(true)
-                }
+            mHandler?.post {
+                mVirtualDisplay?.release()
+                mImageReader?.setOnImageAvailableListener(null, null)
+                mOrientationChangeCallback?.disable()
+                mMediaProjection?.unregisterCallback(this@MediaProjectionStopCallback)
+                cleanupAfterProjectionStop(true)
             }
         }
     }
